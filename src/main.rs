@@ -1,0 +1,229 @@
+mod db;
+mod types;
+mod responses;
+
+use std::{env, path, sync::Arc, time::Duration};
+
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    http::{Method, header},
+    routing::{any, delete, get, patch, post},
+};
+
+use sqlx::postgres::PgConnectOptions;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    services::ServeDir,
+};
+use uuid::Uuid;
+
+use crate::{db::PgInterface, responses::error_t::InternalError, types::PLACE_HOLDER_UUID};
+use crate::types::PrivilegeT;
+use types::AppState;
+
+use crate::{db::LiteInterface, types::User};
+
+async fn ensure_master_user(mut state: AppState) {
+    let (usr_nm, pswrd) = (
+        env::var("M_USERNAME").expect("the variable for the master user's username is expected"),
+        env::var("M_PASSWORD").expect("the variable for the master user's password is expected"),
+    );
+
+    let user = state
+        .pg_interface
+        .select_one::<String, User>((
+            &["username", "password"],
+            &vec![usr_nm.clone(), pswrd.clone()],
+        ))
+        .await;
+
+    let master_user =  User {
+                        id: PLACE_HOLDER_UUID,
+                        nickname: "master".to_string(),
+                        prv: PrivilegeT::Proprietor,
+                        username: usr_nm,
+                        password: pswrd,
+                        pfp: None,
+                    };
+
+    match user {
+        Ok(u) if u.prv != PrivilegeT::Proprietor => {
+            state.pg_interface.delete_many::<Uuid, User>(&[u.id]).await.expect("generic db ops are expected to succeed");
+            state.pg_interface.insert_one(master_user, false).await.expect("generic db ops are expected to succeed");
+        }
+        Err(e) if e == InternalError::NoMatches => {
+            state.pg_interface.insert_one(master_user, false).await.expect("generic db ops are expected to succeed");
+        }
+        Err(_) => {
+            panic!("generic db ops are expected to succeed")
+        }
+        _ => {}
+    }
+}
+
+async fn setup() -> AppState {
+    let opt = PgConnectOptions::new()
+        .socket("/run/postgresql")
+        .username(
+            &std::env::var("PS_USERNAME").expect("a PS_USERNAME enviroment variable is expected"),
+        )
+        .database("records_ps");
+
+    let state = AppState {
+        jwt_secret: env::var("JWT_SECRET")
+            .expect("the jwt secret is expected to exist")
+            .into_bytes()
+            .into(),
+        pg_interface: PgInterface::new(opt)
+            .await
+            .expect("failed to create the postgres db connection"),
+        lite_interface: LiteInterface::new()
+            .await
+            .expect("failed to create the sqlite db connection"),
+        redis_client: client,
+        pending_calls: Arc::new(DashMap::new()),
+    };
+
+    ensure_master_user(state.clone()).await;
+
+    return state;
+}
+
+#[tokio::main]
+async fn main() {
+    dotenvy::dotenv().expect("a .env file is expected");
+    let state = setup().await;
+    tokio::spawn(cleaner::cleaner_subprocess(state.clone()));
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .max_age(Duration::from_secs(3600));
+
+    let auth: Router<AppState> = Router::new()
+        .route("/login", post(login))
+        .route("/refresh", post(refresh))
+        .route("/sign_up", post(sign_up));
+
+    let dm: Router<AppState> = Router::new()
+        .route("/member/{member_id}", post(add_dm))
+        .route("/initial", get(get_initial_dms))
+        .route("/page/{cursor}", get(get_dms_from))
+        .route("/invite/initial", get(get_initial_dm_invites))
+        .route("/invite/page/{cursor}", get(get_dm_invites_from))
+        .route("/invite/{invite_id}", patch(manage_dm_invite))
+        .route("/{dm_id}/message", post(add_dm_message))
+        .route("/{dm_id}/message/{message_id}", patch(update_dm_message))
+        .route("/{dm_id}/message/{message_id}", delete(delete_dm_message))
+        .route("/{dm_id}/message/initial", get(get_initial_dm_messages))
+        .route("/{dm_id}/message/page/{cursor}", get(get_dm_messages_from))
+        .route("/{dm_id}", delete(delete_dm));
+
+    let channel: Router<AppState> = Router::new()
+        .route("/initial", get(get_initial_channels))
+        .route("/page/{cursor}", get(get_channels_from))
+        .route("/{channel_id}/message", post(add_guild_channel_message))
+        .route(
+            "/{channel_id}/message/{message_id}",
+            patch(update_guild_channel_message),
+        )
+        .route(
+            "/{channel_id}/message/{message_id}",
+            delete(delete_guild_channel_message),
+        )
+        .route(
+            "/{channel_id}/message/initial",
+            get(get_initial_channel_messages),
+        )
+        .route(
+            "/{channel_id}/message/page/{cursor}",
+            get(get_channel_messages_from),
+        )
+        .route("/", post(add_guild_channel))
+        .route("/{channel_id}", patch(update_channel))
+        .route("/{channel_id}", delete(delete_channel));
+
+    let guild: Router<AppState> = Router::new()
+        .route("/", post(add_guild))
+        .route("/initial", get(get_initial_guilds))
+        .route("/page/{cursor}", get(get_guilds_from))
+        .route("/invite/initial", get(get_initial_guild_invites))
+        .route("/invite/page/{cursor}", get(get_guild_invites_from))
+        .route("/{guild_id}/member/initial", get(get_initial_guild_members))
+        .route(
+            "/{guild_id}/member/page/{cursor}",
+            get(get_guild_members_from),
+        )
+        .route("/invite/{invite_id}", patch(manage_guild_invite))
+        .route("/{guild_id}/invite", post(invite_guild_member))
+        .route("/{guild_id}", delete(delete_guild))
+        .route("/{guild_id}", patch(update_guild))
+        .route(
+            "/{guild_id}/member/{member_id}",
+            delete(delete_guild_member),
+        )
+        .nest("/{guild_id}/channel", channel);
+
+    let relations: Router<AppState> = Router::new()
+        .route("/friend/initial", get(get_initial_friends))
+        .route("/friend/page/{cursor}", get(get_friends_from))
+        .route("/invite/initial", get(get_initial_friend_invites))
+        .route("/invite/page/{cursor}", get(get_friend_invites_from))
+        .route("/{user_id}/invite", post(create_friend_invite))
+        .route("/invite/{user_id}", patch(manage_friend_invite))
+        .route("/toggle/{user_id}/block", patch(update_relation))
+        .route("/{user_id}", delete(delete_relation));
+
+    let users: Router<AppState> = Router::new()
+        .route("/me", delete(delete_self))
+        .route("/me", patch(update_self));
+
+    let objects: Router<AppState> = Router::new()
+        .route("/upload", post(upload))
+        .layer(DefaultBodyLimit::max(10000000))
+        .route("/pull/{object_id}", get(pull))
+        .layer(DefaultBodyLimit::max(10000000));
+
+    // let sockets: Router<AppState> = Router::new().route("/upgrade", any(ws_upgrade));
+
+    let api = Router::new()
+        /* ===== Invites ===== */
+        .route("/invite/new_user", post(create_invite))
+        /* ===== Auth ===== */
+        .nest("/auth", auth)
+        /* ===== Dms ===== */
+        .nest("/dm", dm)
+        /* ===== Guilds ===== */
+        .nest("/guild", guild)
+        /* ===== Relations ===== */
+        .nest("/relation", relations)
+        /* ===== Users ===== */
+        .nest("/user", users)
+        /* ===== Objects ===== */
+        .nest("/object", objects)
+        /* ===== WebSockets ===== */
+        // .nest("/ws", sockets)
+        /* ===== Generics ===== */
+        .layer(cors)
+        .with_state(state);
+
+    let interface: Router<()> = Router::new()
+        .nest("/apiV1", api)
+        .fallback_service(ServeDir::new("res"));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("port 8080 is required to be free");
+
+    axum::serve(listener, interface)
+        .await
+        .expect("axum serve needs to start succesfully");
+}
