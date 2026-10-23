@@ -1,14 +1,13 @@
 use std::ops::DerefMut;
 
 use crate::{responses::error_t::InternalError, types::*};
-use sqlx::{
-    Connection, Database, Encode, Executor, FromRow, IntoArguments, Pool, Postgres, QueryBuilder, Transaction, pool::PoolConnection, query::Query,
+use sqlx::{Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction, pool::PoolConnection, query::Query,
 };
 
 trait Connect
 {
     type DB: Database;
-    type Conn<'a>: DerefMut<Target = Self::DB> + Send
+    type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send
     where
         Self: 'a;
 
@@ -16,21 +15,26 @@ trait Connect
 }
 
 #[derive(Clone)]
-pub struct PgInterface<C>
+pub struct DbInterface<C>
 where C: Connect
 {
     connector: C,
 }
 
-#[derive(Clone)]
 pub struct DbPool<DB> 
 where  DB: Database
 {
     pool: Pool<DB>,
 }
 
+impl<DB: Database> Clone for DbPool<DB> {
+    fn clone(&self) -> Self {
+        return Self { pool: self.pool.clone()};
+    }
+}
+
 impl<DB> Connect for DbPool<DB> 
-where  DB: Database<Connection = DB> + Connection
+where  DB: Database
 {
     type DB = DB;
     type Conn<'a> = PoolConnection<DB>;
@@ -40,10 +44,10 @@ where  DB: Database<Connection = DB> + Connection
     }
 }
 
-impl<DB: Database<Connection = DB> + Connection> PgInterface<DbPool<DB>> {
+impl<DB: Database> DbInterface<DbPool<DB>> {
 
-    pub async fn begin_transaction(&mut self) -> Result<PgInterface<DbTransaction<DB>>, InternalError> {
-        return Ok(PgInterface { connector: DbTransaction {
+    pub async fn begin_transaction(&mut self) -> Result<DbInterface<DbTransaction<DB>>, InternalError> {
+        return Ok(DbInterface { connector: DbTransaction {
             conn: self
                 .connector
                 .pool
@@ -53,7 +57,7 @@ impl<DB: Database<Connection = DB> + Connection> PgInterface<DbPool<DB>> {
         } });
     }
 
-    pub async fn new(pool: Pool<DB>) -> Result<PgInterface<DbPool<DB>>, sqlx::Error> {
+    pub async fn new(pool: Pool<DB>) -> Result<DbInterface<DbPool<DB>>, sqlx::Error> {
         return Ok(Self {
             connector: DbPool { pool: pool },
         });
@@ -66,7 +70,7 @@ where DB: Database
     conn: Transaction<'static, DB>,
 }
 
-impl<DB: Database<Connection = DB>> Connect for DbTransaction<DB> {
+impl<DB: Database> Connect for DbTransaction<DB> {
     type DB = DB;
     type Conn<'a>
         = &'a mut DB::Connection
@@ -78,7 +82,7 @@ impl<DB: Database<Connection = DB>> Connect for DbTransaction<DB> {
     }
 }
 
-impl<DB: Database<Connection = DB> + Connection> PgInterface<DbTransaction<DB>> {
+impl<DB: Database> DbInterface<DbTransaction<DB>> {
 
     pub async fn commit(self) -> Result<(), InternalError> {
         return self
@@ -99,9 +103,9 @@ impl<DB: Database<Connection = DB> + Connection> PgInterface<DbTransaction<DB>> 
     }
 }
 
-impl<C: Connect> PgInterface<C> 
+impl<C: Connect> DbInterface<C> 
 where <C::DB as Database>::Arguments: IntoArguments<C::DB>, 
-    for<'c> &'c mut <C as Connect>::DB: Executor<'c, Database = C::DB>
+    for<'c> &'c mut <C::DB as Database>::Connection: Executor<'c, Database = C::DB>,
 {
     pub async fn insert_one<T>(&mut self, data: T, insert_all: bool) -> Result<T, InternalError>
     where T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
@@ -229,12 +233,12 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
 
     pub async fn delete_many<I, T>(&mut self, id_s: &[I]) -> Result<Vec<T>, InternalError>
     where
-        I: for<'q> Encode<'q, Postgres> + sqlx::Type<sqlx::Postgres>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
 
-        let mut sql: QueryBuilder<Postgres> = QueryBuilder::new("DELETE FROM ");
+        let mut sql: QueryBuilder<C::DB> = QueryBuilder::new("DELETE FROM ");
         sql.push(T::table_name()).push(" WHERE (");
 
         let mut sepr = sql.separated(", ");
@@ -264,7 +268,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
 
     pub async fn select_one<I, T>(&mut self, id_s: (&[&str], &[I])) -> Result<T, InternalError>
     where
-        I: for<'q> Encode<'q, Postgres> + sqlx::Type<sqlx::Postgres>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         return self
@@ -281,12 +285,12 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
         limit: Option<i32>,
     ) -> Result<Vec<T>, InternalError>
     where
-        I: for<'q> Encode<'q, Postgres> + sqlx::Type<sqlx::Postgres>,
+        I: for<'q> Encode<'q, C::DB> + sqlx::Type<C::DB>,
         T: Bindable<C::DB> + for<'r> FromRow<'r, <C::DB as Database>::Row> + Send + Unpin,
     {
         let mut conn = self.connector.conn().await?;
 
-        let mut sql: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM ");
+        let mut sql: QueryBuilder<C::DB> = QueryBuilder::new("SELECT * FROM ");
         sql.push(T::table_name());
 
         if let Some(some_id_s) = id_s {
@@ -335,7 +339,7 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
 
     pub async fn generic_exec(
         &mut self,
-        query: Query<'_, Postgres, PgArguments>,
+        query: Query<'_, C::DB, <C::DB as Database>::Arguments>,
     ) -> Result<(), InternalError> {
         let mut conn = self.connector.conn().await?;
         query
@@ -347,12 +351,12 @@ where <C::DB as Database>::Arguments: IntoArguments<C::DB>,
 
     pub async fn generic_fetch<F, O, A>(
         &mut self,
-        query: sqlx::query::Map<'_, Postgres, F, A>,
+        query: sqlx::query::Map<'_, C::DB, F, A>,
     ) -> Result<Vec<O>, InternalError>
     where
         F: FnMut(<C::DB as Database>::Row) -> Result<O, sqlx::Error> + Send,
         O: Send + Unpin,
-        A: Send + IntoArguments<Postgres>,
+        A: Send + IntoArguments<C::DB>,
     {
         let mut conn = self.connector.conn().await?;
         query

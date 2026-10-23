@@ -214,8 +214,7 @@ type UserId = Uuid;
 #[derive(Clone)]
 pub struct AppState {
     pub secret_b_array: Arc<[u8]>,
-    pub pg_interface: PgInterface<DbPool>,
-    pub lite_interface: LiteInterface,
+    pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
 }
 
