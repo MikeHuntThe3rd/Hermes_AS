@@ -2,27 +2,25 @@ mod db;
 mod types;
 mod responses;
 
-use std::{env, path, sync::Arc, time::Duration};
+use std::{env, time::Duration};
 
 use axum::{
-    Router,
-    extract::DefaultBodyLimit,
-    http::{Method, header},
-    routing::{any, delete, get, patch, post},
+    Router, http::{Method, StatusCode, header}, routing::{delete, get, patch, post},
 };
 
-use sqlx::postgres::PgConnectOptions;
+use fred::{interfaces::ClientLike, types::{Builder, config::{Config, TcpConfig}}};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::{
     cors::{Any, CorsLayer},
     services::ServeDir,
 };
 use uuid::Uuid;
 
-use crate::{db::PgInterface, responses::error_t::InternalError, types::PLACE_HOLDER_UUID};
+use crate::{db::DbInterface, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::AppState;
 
-use crate::{db::LiteInterface, types::User};
+use crate::types::User;
 
 async fn ensure_master_user(mut state: AppState) {
     let (usr_nm, pswrd) = (
@@ -53,7 +51,8 @@ async fn ensure_master_user(mut state: AppState) {
             state.pg_interface.insert_one(master_user, false).await.expect("generic db ops are expected to succeed");
         }
         Err(e) if e == InternalError::NoMatches => {
-            state.pg_interface.insert_one(master_user, false).await.expect("generic db ops are expected to succeed");
+            state.pg_interface.insert_one(master_user, false)
+            .await.expect("generic db ops are expected to succeed");
         }
         Err(_) => {
             panic!("generic db ops are expected to succeed")
@@ -63,26 +62,44 @@ async fn ensure_master_user(mut state: AppState) {
 }
 
 async fn setup() -> AppState {
-    let opt = PgConnectOptions::new()
+    let db_opt = PgConnectOptions::new()
         .socket("/run/postgresql")
         .username(
             &std::env::var("PS_USERNAME").expect("a PS_USERNAME enviroment variable is expected"),
         )
         .database("records_ps");
 
+    let db_conn_pool = PgPoolOptions::new()
+        .max_connections(20)
+        .connect_with(db_opt)
+        .await.expect("connection pool initialization is expected to succeed");
+
+    let conf = Config::from_url("redis://localhost:6379/1").expect("redis binding is expected to succeed");
+
+    let kv_client = Builder::from_config(conf)
+    .with_connection_config(|config| {
+        config.connection_timeout = Duration::from_secs(1);
+        config.tcp = TcpConfig {
+            nodelay: Some(true),
+            ..Default::default()
+        }
+    })
+    .build().expect("kv client construction is expected to succeed");
+
+    kv_client
+        .init()
+        .await
+        .expect("client init is expected to succeed");
+
     let state = AppState {
-        jwt_secret: env::var("JWT_SECRET")
+        secret_b_array: env::var("SECRET")
             .expect("the jwt secret is expected to exist")
             .into_bytes()
             .into(),
-        pg_interface: PgInterface::new(opt)
+        pg_interface: DbInterface::new(db_conn_pool)
             .await
             .expect("failed to create the postgres db connection"),
-        lite_interface: LiteInterface::new()
-            .await
-            .expect("failed to create the sqlite db connection"),
-        redis_client: client,
-        pending_calls: Arc::new(DashMap::new()),
+        kvs_client: kv_client,
     };
 
     ensure_master_user(state.clone()).await;
@@ -90,11 +107,19 @@ async fn setup() -> AppState {
     return state;
 }
 
+async fn palceholder_handler() -> Res<()> {
+    Res{
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: None,
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().expect("a .env file is expected");
+    dotenvy::dotenv().expect("an .env file is expected");
     let state = setup().await;
-    tokio::spawn(cleaner::cleaner_subprocess(state.clone()));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -109,109 +134,45 @@ async fn main() {
         .max_age(Duration::from_secs(3600));
 
     let auth: Router<AppState> = Router::new()
-        .route("/login", post(login))
-        .route("/refresh", post(refresh))
-        .route("/sign_up", post(sign_up));
+        .route("/login", post(palceholder_handler))
+        .route("/refresh", post(palceholder_handler))
+        .route("/sign_up", post(palceholder_handler))
+        .route("/ds-token", post(palceholder_handler));
 
-    let dm: Router<AppState> = Router::new()
-        .route("/member/{member_id}", post(add_dm))
-        .route("/initial", get(get_initial_dms))
-        .route("/page/{cursor}", get(get_dms_from))
-        .route("/invite/initial", get(get_initial_dm_invites))
-        .route("/invite/page/{cursor}", get(get_dm_invites_from))
-        .route("/invite/{invite_id}", patch(manage_dm_invite))
-        .route("/{dm_id}/message", post(add_dm_message))
-        .route("/{dm_id}/message/{message_id}", patch(update_dm_message))
-        .route("/{dm_id}/message/{message_id}", delete(delete_dm_message))
-        .route("/{dm_id}/message/initial", get(get_initial_dm_messages))
-        .route("/{dm_id}/message/page/{cursor}", get(get_dm_messages_from))
-        .route("/{dm_id}", delete(delete_dm));
-
-    let channel: Router<AppState> = Router::new()
-        .route("/initial", get(get_initial_channels))
-        .route("/page/{cursor}", get(get_channels_from))
-        .route("/{channel_id}/message", post(add_guild_channel_message))
-        .route(
-            "/{channel_id}/message/{message_id}",
-            patch(update_guild_channel_message),
-        )
-        .route(
-            "/{channel_id}/message/{message_id}",
-            delete(delete_guild_channel_message),
-        )
-        .route(
-            "/{channel_id}/message/initial",
-            get(get_initial_channel_messages),
-        )
-        .route(
-            "/{channel_id}/message/page/{cursor}",
-            get(get_channel_messages_from),
-        )
-        .route("/", post(add_guild_channel))
-        .route("/{channel_id}", patch(update_channel))
-        .route("/{channel_id}", delete(delete_channel));
-
-    let guild: Router<AppState> = Router::new()
-        .route("/", post(add_guild))
-        .route("/initial", get(get_initial_guilds))
-        .route("/page/{cursor}", get(get_guilds_from))
-        .route("/invite/initial", get(get_initial_guild_invites))
-        .route("/invite/page/{cursor}", get(get_guild_invites_from))
-        .route("/{guild_id}/member/initial", get(get_initial_guild_members))
-        .route(
-            "/{guild_id}/member/page/{cursor}",
-            get(get_guild_members_from),
-        )
-        .route("/invite/{invite_id}", patch(manage_guild_invite))
-        .route("/{guild_id}/invite", post(invite_guild_member))
-        .route("/{guild_id}", delete(delete_guild))
-        .route("/{guild_id}", patch(update_guild))
-        .route(
-            "/{guild_id}/member/{member_id}",
-            delete(delete_guild_member),
-        )
-        .nest("/{guild_id}/channel", channel);
-
-    let relations: Router<AppState> = Router::new()
-        .route("/friend/initial", get(get_initial_friends))
-        .route("/friend/page/{cursor}", get(get_friends_from))
-        .route("/invite/initial", get(get_initial_friend_invites))
-        .route("/invite/page/{cursor}", get(get_friend_invites_from))
-        .route("/{user_id}/invite", post(create_friend_invite))
-        .route("/invite/{user_id}", patch(manage_friend_invite))
-        .route("/toggle/{user_id}/block", patch(update_relation))
-        .route("/{user_id}", delete(delete_relation));
+    let devices: Router<AppState> = Router::new()
+        .route("/register", post(palceholder_handler))
+        .route("/all", get(palceholder_handler))
+        .route("/{device_id}", delete(palceholder_handler));
 
     let users: Router<AppState> = Router::new()
-        .route("/me", delete(delete_self))
-        .route("/me", patch(update_self));
+        .route("/me", delete(palceholder_handler))
+        .route("/me", patch(palceholder_handler))
+        .route("/{user_id}/profile", get(palceholder_handler))
+        .route("/{user_id}/devices", get(palceholder_handler))
+        .route("/lookup", get(palceholder_handler));
 
-    let objects: Router<AppState> = Router::new()
-        .route("/upload", post(upload))
-        .layer(DefaultBodyLimit::max(10000000))
-        .route("/pull/{object_id}", get(pull))
-        .layer(DefaultBodyLimit::max(10000000));
+    let pki: Router<AppState> = Router::new()
+        .route("/intermediates", get(palceholder_handler))
+        .route("/well-known", get(palceholder_handler));
 
-    // let sockets: Router<AppState> = Router::new().route("/upgrade", any(ws_upgrade));
+    let dir: Router<AppState> = Router::new()
+        .route("/intermediates", get(palceholder_handler))
+        .route("/well-known", get(palceholder_handler));
 
     let api = Router::new()
-        /* ===== Invites ===== */
-        .route("/invite/new_user", post(create_invite))
-        /* ===== Auth ===== */
+        /* ===== INVITES ===== */
+        .route("/invite/new_user", post(palceholder_handler))
+        /* ===== AUTH ===== */
         .nest("/auth", auth)
-        /* ===== Dms ===== */
-        .nest("/dm", dm)
-        /* ===== Guilds ===== */
-        .nest("/guild", guild)
-        /* ===== Relations ===== */
-        .nest("/relation", relations)
-        /* ===== Users ===== */
+        /* ===== USERS ===== */
         .nest("/user", users)
-        /* ===== Objects ===== */
-        .nest("/object", objects)
-        /* ===== WebSockets ===== */
-        // .nest("/ws", sockets)
-        /* ===== Generics ===== */
+        /* ===== PKI ===== */
+        .nest("/pki", pki)
+        /* ===== DIR ===== */
+        .nest("/dir", dir)
+        /* ===== DEVICES ===== */
+        .nest("/device", devices)
+        /* ===== STATE ===== */
         .layer(cors)
         .with_state(state);
 

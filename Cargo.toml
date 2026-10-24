@@ -13,3 +13,5 @@ uuid = { version = "1.26.1", features = ["v4", "v7", "serde"] }
 axum = { version = "0.8.9", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
 fred = "10.1.0"
+dotenvy = "0.15.7"
+
