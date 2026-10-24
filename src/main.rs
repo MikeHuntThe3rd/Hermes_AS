@@ -1,6 +1,8 @@
 mod db;
 mod types;
+mod handlers;
 mod responses;
+mod axum_trait_impls;
 
 use std::{env, time::Duration};
 
@@ -16,7 +18,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{db::DbInterface, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{db::DbInterface, handlers::post::{login, refresh, sign_up}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::AppState;
 
@@ -134,9 +136,10 @@ async fn main() {
         .max_age(Duration::from_secs(3600));
 
     let auth: Router<AppState> = Router::new()
-        .route("/login", post(palceholder_handler))
-        .route("/refresh", post(palceholder_handler))
-        .route("/sign_up", post(palceholder_handler))
+        .route("/login", post(login))
+        .route("/refresh", post(refresh))
+        .route("/sign_up", post(sign_up))
+        .route("/invite_new_user", post(palceholder_handler))
         .route("/ds-token", post(palceholder_handler));
 
     let devices: Router<AppState> = Router::new()
@@ -161,7 +164,7 @@ async fn main() {
 
     let api = Router::new()
         /* ===== INVITES ===== */
-        .route("/invite/new_user", post(palceholder_handler))
+        .route("/invite_new_user", post(palceholder_handler))
         /* ===== AUTH ===== */
         .nest("/auth", auth)
         /* ===== USERS ===== */

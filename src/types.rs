@@ -100,116 +100,21 @@ pub struct User {
     pub prv: PrivilegeT,
     pub username: String,
     pub password: String,
-    pub pfp: Option<Uuid>,
+    pub pfp: Option<String>,
 }
 
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Guild {
+#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
+#[ids = "id;device"]
+pub struct Device {
     pub id: Uuid,
-    pub name: String,
-    pub gp: Option<Uuid>,
+    pub device: Uuid,
 }
 
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
+#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
-pub struct Channel {
+pub struct Deletion {
     pub id: Uuid,
-    pub guild_id: Uuid,
-    pub name: String,
-    pub category: ChannelT,
 }
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Dm {
-    pub id: Uuid,
-    pub user_a: Option<Uuid>,
-    pub user_b: Option<Uuid>,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Guild_Invite {
-    pub id: Uuid,
-    pub guild_id: Uuid,
-    pub recipient: Uuid,
-    pub rank: RankT,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Dm_Invite {
-    pub id: Uuid,
-    pub dm_id: Uuid,
-    pub recipient: Uuid,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "guild_id;member_id"]
-#[include_ids(true)]
-pub struct Guild_Member {
-    pub guild_id: Uuid,
-    pub member_id: Uuid,
-    pub rank: RankT,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Dm_Message {
-    pub id: i64,
-    pub dm_id: Uuid,
-    pub message: Option<String>,
-    pub user_id: Option<Uuid>,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Guild_Message {
-    pub id: i64,
-    pub channel_id: Uuid,
-    pub message: Option<String>,
-    pub user_id: Option<Uuid>,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "id"]
-pub struct Object {
-    pub id: Uuid,
-    pub hash: String,
-    pub rel_path: String,
-    pub mime_type: String,
-    pub size_bytes: i64,
-    pub creation_timestamp: i64,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "message_id;object_id"]
-#[include_ids(true)]
-pub struct Dm_Message_Object {
-    pub message_id: i64,
-    pub object_id: Uuid,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "message_id;object_id"]
-#[include_ids(true)]
-pub struct Guild_Message_Object {
-    pub message_id: i64,
-    pub object_id: Uuid,
-}
-
-#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable)]
-#[ids = "relating_user;related_user"]
-pub struct Relation {
-    pub relating_user: Uuid,
-    pub related_user: Uuid,
-    pub state: RelationT,
-}
-
-type CallId = Uuid;
-type RoomId = Uuid;
-type UserId = Uuid;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -219,12 +124,22 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Claims {
+pub struct AuthClaims {
     pub sub: Uuid,
     pub jti: Uuid,
-    pub iat: usize,
-    pub exp: usize,
+    pub iat: u64,
+    pub exp: u64,
     pub tkn_type: TokenType,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DsClaims {
+    pub sub: Uuid,
+    pub aud: Uuid,
+    pub device_id: Uuid,
+    pub jti: Uuid,
+    pub iat: u64,
+    pub exp: u64,
 }
 
 #[derive(Serialize, Deserialize)]

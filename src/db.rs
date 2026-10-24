@@ -1,10 +1,10 @@
+#![allow(warnings)]
 use std::ops::DerefMut;
 
 use crate::{responses::error_t::InternalError, types::*};
-use sqlx::{Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction, pool::PoolConnection, query::Query,
-};
+use sqlx::{Database, Encode, Executor, FromRow, IntoArguments, Pool, QueryBuilder, Transaction, pool::PoolConnection, query::Query};
 
-trait Connect
+pub trait Connect
 {
     type DB: Database;
     type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send

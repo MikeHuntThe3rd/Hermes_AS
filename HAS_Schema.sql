@@ -6,23 +6,15 @@ CREATE TABLE "users" (
   "prv" privilege_t NOT NULL,
   "username" text NOT NULL UNIQUE,
   "password" text NOT NULL,
-  "pfp" uuid
+  "pfp" text
 );
 
 CREATE TABLE "devices" (
-  "id" uuid PRIMARY KEY DEFAULT uuidv7(),
-  "nickname" text NOT NULL,
-  "prv" privilege_t NOT NULL,
-  "username" text NOT NULL UNIQUE,
-  "password" text NOT NULL,
-  "pfp" uuid
+  "user_id" uuid NOT NULL DEFAULT uuidv7(),
+  "device" uuid NOT NULL DEFAULT uuidv7(),
+  PRIMARY KEY (user_id, device)
 );
 
 CREATE TABLE "deletions" (
-  "id" uuid PRIMARY KEY DEFAULT uuidv7(),
-  "nickname" text NOT NULL,
-  "prv" privilege_t NOT NULL,
-  "username" text NOT NULL UNIQUE,
-  "password" text NOT NULL,
-  "pfp" uuid
+  "user_id" uuid PRIMARY KEY,
 );
