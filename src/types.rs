@@ -96,8 +96,9 @@ where
 #[ids = "id"]
 pub struct User {
     pub id: Uuid,
-    pub nickname: String,
     pub prv: PrivilegeT,
+    pub home_ds: Uuid,
+    pub nickname: String,
     pub username: String,
     pub password: String,
     pub pfp: Option<String>,
@@ -128,6 +129,7 @@ pub struct AppState {
 pub struct AuthClaims {
     pub sub: Uuid,
     pub jti: Uuid,
+    pub rjti: Option<Uuid>,
     pub iat: u64,
     pub exp: u64,
     pub tkn_type: TokenType,

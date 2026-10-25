@@ -65,9 +65,12 @@ pub async fn login(
     if user.username == data.username && user.password == data.password {
         let now_utc = OffsetDateTime::now_utc();
 
+        let refersh_uuid = Uuid::new_v4();
+
         let access = encode_to_jwt(AuthClaims {
             sub: user.id,
             jti: Uuid::new_v4(),
+            rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Access,
@@ -78,6 +81,7 @@ pub async fn login(
         let refresh = encode_to_jwt(AuthClaims {
             sub: user.id,
             jti: Uuid::new_v4(),
+            rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
@@ -138,9 +142,12 @@ pub async fn refresh(
 
     let now_utc = OffsetDateTime::now_utc();
 
+    let refersh_uuid = Uuid::new_v4();
+
     let access = encode_to_jwt(AuthClaims {
             sub: tkn_data.claims.sub,
             jti: Uuid::new_v4(),
+            rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Access,
@@ -151,6 +158,7 @@ pub async fn refresh(
         let refresh = encode_to_jwt(AuthClaims {
             sub: tkn_data.claims.sub,
             jti: Uuid::new_v4(),
+            rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
@@ -209,12 +217,14 @@ pub async fn sign_up(
     let mut tr = state.pg_interface.begin_transaction()
     .await.map_err(|e| GenericErr::Internal(e))?;
 
+    //TODO: assign an actual ds to the user or let them choose idc
     let user: User = tr
         .insert_one(
             User {
                 id: PLACE_HOLDER_UUID,
-                nickname: data.nickname,
                 prv: auth.claims.priv_level,
+                home_ds: Uuid::new_v4(),
+                nickname: data.nickname,
                 username: data.username,
                 password: data.password,
                 pfp: None,
@@ -226,9 +236,12 @@ pub async fn sign_up(
 
     let now_utc = OffsetDateTime::now_utc();
 
+    let refersh_uuid = Uuid::new_v4();
+
     let access = encode_to_jwt(AuthClaims {
         sub: user.id,
         jti: Uuid::new_v4(),
+        rjti: Some(refersh_uuid),
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
         tkn_type: TokenType::Access,
@@ -239,6 +252,7 @@ pub async fn sign_up(
     let refresh = encode_to_jwt(AuthClaims {
         sub: user.id,
         jti: Uuid::new_v4(),
+        rjti: None,
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
         tkn_type: TokenType::Refresh,
@@ -297,7 +311,7 @@ pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Js
     };
 
     let ds_token = encode_to_jwt(claims, &state.secret_b_array).await?;
-    
+
     return Ok(Res { 
         status: StatusCode::OK, 
         success: true, 

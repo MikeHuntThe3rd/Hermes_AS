@@ -2,8 +2,9 @@ CREATE TYPE privilege_t AS ENUM ('Consumer', 'Proprietor');
 
 CREATE TABLE "users" (
   "id" uuid PRIMARY KEY DEFAULT uuidv7(),
-  "nickname" text NOT NULL,
   "prv" privilege_t NOT NULL,
+  "home_ds" uuid NOT NULL,
+  "nickname" text NOT NULL,
   "username" text NOT NULL UNIQUE,
   "password" text NOT NULL,
   "pfp" text

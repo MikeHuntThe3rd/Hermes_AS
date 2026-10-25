@@ -14,11 +14,10 @@ use fred::{interfaces::ClientLike, types::{Builder, config::{Config, TcpConfig}}
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::{
     cors::{Any, CorsLayer},
-    services::ServeDir,
 };
 use uuid::Uuid;
 
-use crate::{db::DbInterface, handlers::post::*, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{db::DbInterface, handlers::{delete::delete_self, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -38,8 +37,9 @@ async fn ensure_master_user(mut state: AppState) {
 
     let master_user =  User {
                         id: PLACE_HOLDER_UUID,
-                        nickname: "master".to_string(),
                         prv: PrivilegeT::Proprietor,
+                        home_ds: Uuid::new_v4(),
+                        nickname: "master".to_string(),
                         username: usr_nm,
                         password: pswrd,
                         pfp: None,
@@ -146,8 +146,8 @@ async fn main() {
         .route("/{device_id}", delete(palceholder_handler));
 
     let users: Router<AppState> = Router::new()
-        .route("/me", delete(palceholder_handler))
-        .route("/me", patch(palceholder_handler))
+        .route("/me", delete(delete_self))
+        .route("/me", patch(update_self))
         .route("/{user_id}/profile", get(palceholder_handler))
         .route("/{user_id}/devices", get(palceholder_handler))
         .route("/lookup", get(palceholder_handler));
