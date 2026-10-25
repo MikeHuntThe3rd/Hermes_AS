@@ -1,7 +1,7 @@
 use axum::{Json, extract::State, http::StatusCode};
 use fred::interfaces::KeysInterface;
 use jsonwebtoken::{DecodingKey, Validation, decode};
-use crate::{axum_trait_impls::extractors::AuthInvite, responses::error_t::*};
+use crate::{axum_trait_impls::extractors::{AuthInvite, AuthUser}, responses::error_t::*};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -14,6 +14,11 @@ pub struct UserTokenObj {
     pub token_data: TokenPair,
 }
 
+#[derive(Deserialize)]
+pub struct PrivLevel {
+    pub prv_level: PrivilegeT,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct SingleJwtObj {
     pub token: String,
@@ -23,6 +28,12 @@ pub struct SingleJwtObj {
 pub struct TokenPair {
     pub access_tkn: String,
     pub refresh_tkn: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DsCreds {
+    pub ds_id: Uuid,
+    pub device_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -272,6 +283,61 @@ pub async fn sign_up(
     })
 }
 
-pub async fn mint_ds_token(State(state): State<AppState>) -> Result<Res<SingleJwtObj>, GenericErr> {
-    return Err(GenericErr::Auth(AuthError::Blocked));
+pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Json(data): Json<DsCreds>) 
+-> Result<Res<SingleJwtObj>, InternalError> {
+    state.pg_interface.select_one::<Uuid, Device>((&["id"], &[data.device_id])).await?;
+
+    let now = OffsetDateTime::now_utc();
+    let claims = DsClaims {
+        sub: auth.user_id,
+        aud: data.ds_id,
+        device_id: data.device_id,
+        iat: now.clone().unix_timestamp() as u64,
+        exp: (now + Duration::minutes(10)).unix_timestamp() as u64
+    };
+
+    let ds_token = encode_to_jwt(claims, &state.secret_b_array).await?;
+    
+    return Ok(Res { 
+        status: StatusCode::OK, 
+        success: true, 
+        msg: String::new(), 
+        data: Some(SingleJwtObj {
+        token: ds_token
+    })});
+}
+
+pub async fn create_new_user_invite(
+    auth: AuthUser,
+    State(mut state): State<AppState>,
+    Json(data): Json<PrivLevel>,
+) -> Result<Res<SingleJwtObj>, GenericErr> {
+    let user: User = state
+        .pg_interface
+        .select_one((&["id"], &vec![auth.user_id]))
+        .await
+        .map_err(|e| GenericErr::Internal(e))?;
+
+    if user.prv != PrivilegeT::Proprietor {
+        return Err(GenericErr::Auth(AuthError::InvalidPrivilige));
+    }
+
+    let now_utc = OffsetDateTime::now_utc();
+    let claims =  PrivClaims {
+        priv_level: data.prv_level,
+        jti: Uuid::new_v4(),
+        iat: now_utc.clone().unix_timestamp() as u64,
+        exp: (now_utc + Duration::minutes(30)).unix_timestamp() as u64,
+    };
+
+    let inv_jwt = encode_to_jwt(claims, &state.secret_b_array)
+        .await
+        .map_err(|e| GenericErr::Internal(e))?;
+
+    return Ok(Res {
+        status: StatusCode::CREATED,
+        success: true,
+        msg: String::new(),
+        data: Some(SingleJwtObj { token: inv_jwt }),
+    });
 }

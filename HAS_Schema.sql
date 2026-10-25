@@ -10,9 +10,9 @@ CREATE TABLE "users" (
 );
 
 CREATE TABLE "devices" (
-  "user_id" uuid NOT NULL DEFAULT uuidv7(),
-  "device" uuid NOT NULL DEFAULT uuidv7(),
-  PRIMARY KEY (user_id, device)
+  "id" uuid PRIMARY KEY DEFAULT uuidv7(),
+  "user_id" uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  "name" text NOT NULL
 );
 
 CREATE TABLE "deletions" (

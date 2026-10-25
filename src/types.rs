@@ -104,16 +104,17 @@ pub struct User {
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "id;device"]
+#[ids = "id"]
 pub struct Device {
     pub id: Uuid,
-    pub device: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "id"]
+#[ids = "user_id"]
 pub struct Deletion {
-    pub id: Uuid,
+    pub user_id: Uuid,
 }
 
 #[derive(Clone)]
@@ -137,7 +138,6 @@ pub struct DsClaims {
     pub sub: Uuid,
     pub aud: Uuid,
     pub device_id: Uuid,
-    pub jti: Uuid,
     pub iat: u64,
     pub exp: u64,
 }
@@ -146,6 +146,6 @@ pub struct DsClaims {
 pub struct PrivClaims {
     pub priv_level: PrivilegeT,
     pub jti: Uuid,
-    pub iat: usize,
-    pub exp: usize,
+    pub iat: u64,
+    pub exp: u64,
 }

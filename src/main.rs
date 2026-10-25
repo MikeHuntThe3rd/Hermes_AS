@@ -18,11 +18,9 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{db::DbInterface, handlers::post::{login, refresh, sign_up}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{db::DbInterface, handlers::post::*, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
-use types::AppState;
-
-use crate::types::User;
+use types::{AppState, User};
 
 async fn ensure_master_user(mut state: AppState) {
     let (usr_nm, pswrd) = (
@@ -120,7 +118,7 @@ async fn palceholder_handler() -> Res<()> {
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().expect("an .env file is expected");
+    dotenvy::dotenv().expect("a .env file is expected");
     let state = setup().await;
 
     let cors = CorsLayer::new()
@@ -139,8 +137,8 @@ async fn main() {
         .route("/login", post(login))
         .route("/refresh", post(refresh))
         .route("/sign_up", post(sign_up))
-        .route("/invite_new_user", post(palceholder_handler))
-        .route("/ds-token", post(palceholder_handler));
+        .route("/invite_new_user", post(create_new_user_invite))
+        .route("/ds-token", post(mint_ds_token));
 
     let devices: Router<AppState> = Router::new()
         .route("/register", post(palceholder_handler))
@@ -180,8 +178,7 @@ async fn main() {
         .with_state(state);
 
     let interface: Router<()> = Router::new()
-        .nest("/apiV1", api)
-        .fallback_service(ServeDir::new("res"));
+        .nest("/apiV1", api);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
