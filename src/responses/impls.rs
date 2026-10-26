@@ -156,3 +156,15 @@ impl IntoResponse for GenericErr {
         };
     }
 }
+
+impl From<AuthError> for GenericErr {
+    fn from(value: AuthError) -> Self {
+        return GenericErr::Auth(value);
+    }
+}
+
+impl From<InternalError> for GenericErr {
+    fn from(value: InternalError) -> Self {
+        return GenericErr::Internal(value);
+    }
+}

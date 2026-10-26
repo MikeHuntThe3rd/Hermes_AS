@@ -17,7 +17,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{db::DbInterface, handlers::{delete::delete_self, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{db::DbInterface, handlers::{delete::delete_self, get::Get_user_profile, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -148,8 +148,8 @@ async fn main() {
     let users: Router<AppState> = Router::new()
         .route("/me", delete(delete_self))
         .route("/me", patch(update_self))
-        .route("/{user_id}/profile", get(palceholder_handler))
-        .route("/{user_id}/devices", get(palceholder_handler))
+        .route("/{user_id}/profile", get(Get_user_profile))
+        .route("/devices", get(palceholder_handler))
         .route("/lookup", get(palceholder_handler));
 
     let pki: Router<AppState> = Router::new()

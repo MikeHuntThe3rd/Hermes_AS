@@ -43,6 +43,12 @@ pub struct LoginCred {
 }
 
 #[derive(Deserialize)]
+pub struct DeviceCreateInfo {
+    pub public_key: String,
+    pub device_name: String,
+}
+
+#[derive(Deserialize)]
 pub struct SignupCred {
     pub nickname: String,
     pub username: String,
@@ -83,7 +89,7 @@ pub async fn login(
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
-            exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
+            exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
         }, &state.secret_b_array)
             .await
@@ -160,7 +166,7 @@ pub async fn refresh(
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
-            exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
+            exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
         }, &state.secret_b_array)
             .await
@@ -254,7 +260,7 @@ pub async fn sign_up(
         jti: Uuid::new_v4(),
         rjti: None,
         iat: now_utc.clone().unix_timestamp() as u64,
-        exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
+        exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
         tkn_type: TokenType::Refresh,
     }, &state.secret_b_array)
         .await
@@ -297,8 +303,7 @@ pub async fn sign_up(
     })
 }
 
-pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Json(data): Json<DsCreds>) 
--> Result<Res<SingleJwtObj>, InternalError> {
+pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Json(data): Json<DsCreds>) -> Result<Res<SingleJwtObj>, InternalError> {
     state.pg_interface.select_one::<Uuid, Device>((&["id"], &[data.device_id])).await?;
 
     let now = OffsetDateTime::now_utc();
@@ -354,4 +359,11 @@ pub async fn create_new_user_invite(
         msg: String::new(),
         data: Some(SingleJwtObj { token: inv_jwt }),
     });
+}
+
+pub async  fn add_device(
+    auth: AuthUser, 
+    State(mut state): State<AppState>, 
+    Json(data): Json<DeviceCreateInfo>) -> Result<Res<()>, GenericErr> {
+    return Err(GenericErr::Internal(InternalError::BadRequest));
 }

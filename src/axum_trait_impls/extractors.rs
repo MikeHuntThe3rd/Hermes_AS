@@ -22,6 +22,8 @@ use crate::{
 #[derive(Clone)]
 pub struct AuthUser {
     pub user_id: Uuid,
+    pub access_jti: Uuid,
+    pub refresh_jti: Uuid,
 }
 
 pub struct AuthInvite {
@@ -63,8 +65,13 @@ where
             return Err(GenericErr::Auth(AuthError::ExpiredToken));
         }
 
+        let rjti = tkn_data.claims.rjti
+        .ok_or(GenericErr::Internal(InternalError::DecodeEncodeErr))?;
+
         return Ok(AuthUser {
             user_id: tkn_data.claims.sub,
+            access_jti: tkn_data.claims.jti,
+            refresh_jti: rjti,
         });
     }
 }
