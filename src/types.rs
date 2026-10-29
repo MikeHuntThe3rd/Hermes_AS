@@ -1,8 +1,9 @@
 #![allow(warnings)]
 use std::sync::Arc;
 
-use crate::db::*;
+use crate::{certificates::intermediate_keys::Pki, db::*};
 use axum::http::StatusCode;
+use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
 use ed25519_dalek::VerifyingKey;
 use fred::clients::Client;
@@ -19,6 +20,8 @@ pub const INVITES_BLACKLIST_STR: &'static str = "jwt:blacklist:invites:";
 pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
 
 pub const REG_LBL: &[u8] = b"herpesz-api";
+
+pub const B64_ENGINE: GeneralPurpose= URL_SAFE_NO_PAD;
 
 /* ===== TRAITS ===== */
 
@@ -113,6 +116,10 @@ pub struct Device {
     pub id: Uuid,
     pub user_id: Uuid,
     pub name: String,
+    pub cert_der: Vec<u8>,
+    pub cert_serial: Vec<u8>,
+    pub cert_not_after: i64,
+    pub key_id: String,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
@@ -126,6 +133,7 @@ pub struct AppState {
     pub secret_b_array: Arc<[u8]>,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
+    pub pki: Pki,
 }
 
 #[derive(Serialize, Deserialize)]

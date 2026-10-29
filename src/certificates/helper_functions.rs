@@ -1,16 +1,16 @@
 use std::{str::FromStr, time::{Duration, UNIX_EPOCH}};
 
+use base64::Engine;
 use der::{Encode, asn1::UtcTime};
 use ed25519_dalek::{Signature, VerifyingKey};
 use rand::{Rng, SeedableRng, rngs::{ChaCha12Rng, SysRng}};
 use uuid::Uuid;
 use x509_cert::{SubjectPublicKeyInfo, builder::{Builder, CertificateBuilder}, name::Name, serial_number::SerialNumber, time::Validity};
-use crate::{certificates::{DeviceRegistration, profile_builder::HermesProfile}, responses::error_t::{AuthError, GenericErr, InternalError}, types::{Intermediate, IssuedLeaf, REG_LBL}};
+use crate::{certificates::{DeviceRegistration, profile_builder::HermesProfile}, responses::error_t::{AuthError, GenericErr, InternalError}, types::{B64_ENGINE, Intermediate, IssuedLeaf, REG_LBL}};
 
 pub struct ValidRegistration { pub verifying_key: VerifyingKey, pub public_key: [u8; 32] }
 
 pub fn validate_registration(user_id: Uuid, req: &DeviceRegistration) -> Result<ValidRegistration, GenericErr> {
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64_ENGINE};
 
     let public_key_bytes = B64_ENGINE.decode(&req.signature_pub_k)
     .map_err(|_| InternalError::DecodeEncodeErr)?;

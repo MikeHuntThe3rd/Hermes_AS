@@ -11,9 +11,13 @@ CREATE TABLE "users" (
 );
 
 CREATE TABLE "devices" (
-  "id" uuid PRIMARY KEY DEFAULT uuidv7(),
+  "id" uuid PRIMARY KEY,
   "user_id" uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  "name" text NOT NULL
+  "name" text NOT NULL,
+  "cert_der" BYTEA NOT NULL,
+  "cert_serial" BYTEA NOT NULL,
+  "cert_not_after" BIGINT NOT NULL,
+  "key_id" TEXT NOT NULL
 );
 
 CREATE TABLE "deletions" (

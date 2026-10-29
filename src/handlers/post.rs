@@ -1,14 +1,16 @@
 use axum::{Json, extract::State, http::StatusCode};
+use base64::Engine;
 use fred::interfaces::KeysInterface;
 use jsonwebtoken::{DecodingKey, Validation, decode};
-use crate::{axum_trait_impls::extractors::{AuthInvite, AuthUser}, responses::error_t::*};
-use serde::{Deserialize, Serialize};
-use time::{Duration, OffsetDateTime};
+use tls_codec::{Serialize, VLByteSlice};
+use crate::{axum_trait_impls::extractors::{AuthInvite, AuthUser}, certificates::{DeviceRegistration, helper_functions::{issue_leaf, validate_registration}}, responses::error_t::*};
+use serde::{Deserialize};
+use time::{Duration, OffsetDateTime, SignedDuration};
 use uuid::Uuid;
 
 use crate::{axum_trait_impls::creation::encode_to_jwt, responses::error_t::GenericErr, types::*};
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, Deserialize)]
 pub struct UserTokenObj {
     pub user_data: User,
     pub token_data: TokenPair,
@@ -19,18 +21,18 @@ pub struct PrivLevel {
     pub prv_level: PrivilegeT,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, Deserialize)]
 pub struct SingleJwtObj {
     pub token: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, Deserialize)]
 pub struct TokenPair {
     pub access_tkn: String,
     pub refresh_tkn: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, Deserialize)]
 pub struct DsCreds {
     pub ds_id: Uuid,
     pub device_id: Uuid,
@@ -41,11 +43,13 @@ pub struct LoginCred {
     pub username: String,
     pub password: String,
 }
-
-#[derive(Deserialize)]
-pub struct DeviceCreateInfo {
-    pub public_key: String,
-    pub device_name: String,
+#[derive(serde::Serialize)]
+pub struct DeviceCredential {
+    pub device_id: Uuid,
+    pub credential_type: String,
+    pub credential: String,
+    pub key_id: String,
+    pub not_after: i64,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +368,56 @@ pub async fn create_new_user_invite(
 pub async  fn add_device(
     auth: AuthUser, 
     State(mut state): State<AppState>, 
-    Json(data): Json<DeviceCreateInfo>) -> Result<Res<()>, GenericErr> {
-    return Err(GenericErr::Internal(InternalError::BadRequest));
+    Json(data): Json<DeviceRegistration>
+) -> Result<Res<DeviceCredential>, GenericErr> {
+    let valid_reg = validate_registration(auth.user_id, &data)?;
+
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    let signer = state.pki.get_im_key(now)
+    .ok_or(InternalError::NoMatches)?;
+
+    let device_id = Uuid::new_v4();
+
+    let leaf = issue_leaf(
+        signer, 
+        auth.user_id, 
+        device_id, 
+        &valid_reg.verifying_key, 
+        now, 
+        SignedDuration::days(1).as_seconds_f64() as i64
+    )?;
+
+    let mut tr = state.pg_interface.begin_transaction().await?;
+
+    tr.select_one::<Uuid, User>((&["id"], &[auth.user_id])).await?;
+
+    tr.insert_one(Device {
+        id: device_id,
+        user_id: auth.user_id,
+        name: data.device_name,
+        cert_der: leaf.leaf_der.clone(),
+        cert_serial: leaf.serial,
+        cert_not_after: leaf.not_after,
+        key_id: leaf.key_id.clone(),
+    }, true).await?;
+
+    tr.commit().await?;
+
+    let chain: Vec<VLByteSlice> = vec![VLByteSlice(&leaf.leaf_der), VLByteSlice(&leaf.intermediate_der)];
+    let chain_bytes = chain.tls_serialize_detached()
+    .map_err(|_| InternalError::DecodeEncodeErr)?;
+
+    let res = DeviceCredential {
+        device_id: device_id,
+        credential_type: "x509".to_string(),
+        credential: B64_ENGINE.encode(chain_bytes),
+        key_id: leaf.key_id,
+        not_after: leaf.not_after,
+    };
+
+    return Ok(Res { status: StatusCode::OK, 
+        success: true, 
+        msg: String::new(), 
+        data: Some(res)
+    });
 }

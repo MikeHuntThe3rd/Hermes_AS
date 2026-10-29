@@ -5,7 +5,7 @@ mod responses;
 mod certificates;
 mod axum_trait_impls;
 
-use std::{env, time::Duration};
+use std::{env, sync::Arc, time::Duration, vec};
 
 use axum::{
     Router, http::{Method, StatusCode, header}, routing::{delete, get, patch, post},
@@ -18,7 +18,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{db::DbInterface, handlers::{delete::delete_self, get::Get_user_profile, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::delete_self, get::Get_user_profile, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -101,6 +101,7 @@ async fn setup() -> AppState {
             .await
             .expect("failed to create the postgres db connection"),
         kvs_client: kv_client,
+        pki: Pki { intermediates: Arc::new(Vec::new()) },
     };
 
     ensure_master_user(state.clone()).await;
@@ -142,7 +143,7 @@ async fn main() {
         .route("/ds-token", post(mint_ds_token));
 
     let devices: Router<AppState> = Router::new()
-        .route("/register", post(palceholder_handler))
+        .route("/register", post(add_device))
         .route("/all", get(palceholder_handler))
         .route("/{device_id}", delete(palceholder_handler));
 
