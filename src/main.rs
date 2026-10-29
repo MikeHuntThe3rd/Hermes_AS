@@ -2,6 +2,7 @@ mod db;
 mod types;
 mod handlers;
 mod responses;
+mod certificates;
 mod axum_trait_impls;
 
 use std::{env, time::Duration};

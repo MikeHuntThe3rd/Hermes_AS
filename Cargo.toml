@@ -13,8 +13,9 @@ jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_r
 uuid = { version = "1.26.1", features = ["v4", "v7", "serde"] }
 axum = { version = "0.8.9", features = ["macros", "multipart", "ws"] }
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
-ed25519-dalek = { version = "3", features = ["pkcs8", "rand_core", "builder"] }
+ed25519-dalek = { version = "3", features = ["pkcs8", "rand_core", "pem"] }
 x509-cert = { version = "0.3", features = ["builder"] }
+rand = { version = "0.10.3", features = ["chacha", "sys_rng"] }
 fred = "10.1.0"
 base64 = "0.23.1"
 time = "0.3.55"

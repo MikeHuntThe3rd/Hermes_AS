@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::db::*;
 use axum::http::StatusCode;
 use derive_macros::Bindable;
+use ed25519_dalek::VerifyingKey;
 use fred::clients::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::{Database, Postgres, postgres::PgArguments, query::QueryAs};
@@ -16,6 +17,8 @@ pub const BLACKLIST_STR: &'static str = "jwt:blacklist:";
 pub const INVITES_BLACKLIST_STR: &'static str = "jwt:blacklist:invites:";
 
 pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
+
+pub const REG_LBL: &[u8] = b"herpesz-api";
 
 /* ===== TRAITS ===== */
 
@@ -151,3 +154,24 @@ pub struct PrivClaims {
     pub iat: u64,
     pub exp: u64,
 }
+
+pub struct Intermediate {
+    pub key_id: String,
+    pub ski: Vec<u8>,
+    pub cert_der: Vec<u8>,
+    pub subject: x509_cert::name::Name,
+    pub signer: ed25519_dalek::SigningKey,
+    pub not_before: i64,
+    pub not_after: i64,
+    pub active: bool,
+}
+
+pub struct IssuedLeaf {
+    pub leaf_der: Vec<u8>,
+    pub serial: Vec<u8>,
+    pub not_after: i64,
+    pub key_id: String,
+    pub intermediate_der: Vec<u8>,
+}
+
+

@@ -36,7 +36,7 @@ impl IntoResponse for AuthError {
             AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "given jwt is invalid"),
             AuthError::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
-                "password or username is incorrect",
+                "given identification is invalid",
             ),
             AuthError::MissingToken => {
                 (StatusCode::UNAUTHORIZED, "jwt token required but not found")
@@ -90,6 +90,14 @@ impl IntoResponse for InternalError {
             InternalError::DbError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "given data resulted in a faulty db request",
+            ),
+            InternalError::MiscellaneousInternalError => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "an internal error has occured",
+            ),
+            InternalError::Invalidlifetime => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "given data has an invalid ttl in it",
             ),
             InternalError::RedisError => (
                 StatusCode::INTERNAL_SERVER_ERROR,

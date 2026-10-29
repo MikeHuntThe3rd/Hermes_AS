@@ -27,8 +27,10 @@ pub enum InternalError {
     EmptyMessage,
     DuplicateData,
     DetachedOwner,
+    Invalidlifetime,
     DetachingOperation,
     InvalidAccountCredentials,
+    MiscellaneousInternalError,
 }
 
 pub enum GenericErr {
