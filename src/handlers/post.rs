@@ -237,6 +237,7 @@ pub async fn sign_up(
                 nickname: data.nickname,
                 username: data.username,
                 password: data.password,
+                changes: 0,
                 pfp: None,
             },
             false,
@@ -376,7 +377,7 @@ pub async  fn add_device(
     let signer = state.pki.get_im_key(now)
     .ok_or(InternalError::NoMatches)?;
 
-    let device_id = Uuid::new_v4();
+    let device_id = Uuid::now_v7();
 
     let leaf = issue_leaf(
         signer, 
@@ -396,9 +397,11 @@ pub async  fn add_device(
         user_id: auth.user_id,
         name: data.device_name,
         cert_der: leaf.leaf_der.clone(),
+        sig_pubkey: data.sig_pubkey.into_bytes(),
         cert_serial: leaf.serial,
         cert_not_after: leaf.not_after,
         key_id: leaf.key_id.clone(),
+        is_revoked: false
     }, true).await?;
 
     tr.commit().await?;

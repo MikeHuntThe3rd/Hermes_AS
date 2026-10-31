@@ -18,7 +18,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::delete_self, get::Get_user_profile, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -43,6 +43,7 @@ async fn ensure_master_user(mut state: AppState) {
                         nickname: "master".to_string(),
                         username: usr_nm,
                         password: pswrd,
+                        changes: 0,
                         pfp: None,
                     };
 
@@ -144,14 +145,14 @@ async fn main() {
 
     let devices: Router<AppState> = Router::new()
         .route("/register", post(add_device))
-        .route("/all", get(palceholder_handler))
-        .route("/{device_id}", delete(palceholder_handler));
+        .route("/all", get(get_devices))
+        .route("/{device_id}", delete(revoke_device));
 
     let users: Router<AppState> = Router::new()
         .route("/me", delete(delete_self))
         .route("/me", patch(update_self))
-        .route("/{user_id}/profile", get(Get_user_profile))
-        .route("/devices", get(palceholder_handler))
+        .route("/{user_id}/profile", get(get_user_profile))
+        .route("/{user_id}/devices", get(get_signed_devices))
         .route("/lookup", get(palceholder_handler));
 
     let pki: Router<AppState> = Router::new()

@@ -71,6 +71,7 @@ pub async fn update_self(
             nickname: data.nickname,
             username: data.username,
             password: data.password,
+            changes: 0,
             pfp: Some(data.pfp),
         })
         .await

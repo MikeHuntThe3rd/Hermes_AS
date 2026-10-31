@@ -107,6 +107,7 @@ pub struct User {
     pub nickname: String,
     pub username: String,
     pub password: String,
+    pub changes: i64,
     pub pfp: Option<String>,
 }
 
@@ -117,9 +118,11 @@ pub struct Device {
     pub user_id: Uuid,
     pub name: String,
     pub cert_der: Vec<u8>,
+    pub sig_pubkey: Vec<u8>,
     pub cert_serial: Vec<u8>,
     pub cert_not_after: i64,
     pub key_id: String,
+    pub is_revoked: bool
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]

@@ -24,3 +24,20 @@ pub async fn delete_self(
         data: None,
     });
 }
+
+pub async fn revoke_device(
+    auth: AuthUser, 
+    State(mut state): State<AppState>, 
+    Path(device_id): Path<Uuid>
+) -> Result<Res<()>, InternalError> {
+    let mut device: Device = state.pg_interface.select_one((&["id"], &[device_id])).await?;
+    device.is_revoked = true;
+    state.pg_interface.update_one(device).await?;
+
+    return Ok(Res { 
+        status: StatusCode::OK, 
+        success: true, 
+        msg: String::new(), 
+        data: None 
+    });
+}

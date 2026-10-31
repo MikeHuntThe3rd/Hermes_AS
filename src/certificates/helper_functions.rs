@@ -12,7 +12,7 @@ pub struct ValidRegistration { pub verifying_key: VerifyingKey, pub public_key: 
 
 pub fn validate_registration(user_id: Uuid, req: &DeviceRegistration) -> Result<ValidRegistration, GenericErr> {
 
-    let public_key_bytes = B64_ENGINE.decode(&req.signature_pub_k)
+    let public_key_bytes = B64_ENGINE.decode(&req.sig_pubkey)
     .map_err(|_| InternalError::DecodeEncodeErr)?;
     let public_key: [u8; 32] = public_key_bytes.try_into()
     .map_err(|_| InternalError::DecodeEncodeErr)?;

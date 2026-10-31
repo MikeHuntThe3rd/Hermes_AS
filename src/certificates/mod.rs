@@ -6,7 +6,7 @@ pub mod profile_builder;
 
 #[derive(Deserialize)]
 pub struct DeviceRegistration {
-    pub signature_pub_k: String,
+    pub sig_pubkey: String,
     pub proof: String,
     pub device_name: String,
 }
