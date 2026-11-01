@@ -46,7 +46,7 @@ where
 
         let tkn_data = decode::<AuthClaims>(
             bearer.token(),
-            &DecodingKey::from_secret(&app_state.secret_b_array),
+            &DecodingKey::from_secret(&*app_state.secret_b_array),
             &Validation::default(),
         )
         .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;
@@ -92,7 +92,7 @@ where
 
         let tkn_data = decode::<PrivClaims>(
             bearer.token(),
-            &DecodingKey::from_secret(&app_state.secret_b_array),
+            &DecodingKey::from_secret(&*app_state.secret_b_array),
             &Validation::default(),
         )
         .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;

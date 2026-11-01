@@ -5,7 +5,7 @@ use crate::{certificates::intermediate_keys::Pki, db::*};
 use axum::http::StatusCode;
 use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use fred::clients::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::{Database, Postgres, postgres::PgArguments, query::QueryAs};
@@ -39,6 +39,10 @@ pub trait Bindable<DB: Database> {
     ) -> QueryAs<'lftm, DB, Self, DB::Arguments>
     where
         Self: Sized;
+}
+
+pub trait FetchableKid {
+    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>; 
 }
 
 /* ===== ENUMS ===== */
@@ -133,7 +137,8 @@ pub struct Deletion {
 
 #[derive(Clone)]
 pub struct AppState {
-    pub secret_b_array: Arc<[u8]>,
+    pub secret_b_array: Arc<[u8; 32]>,
+    pub jwt_signer: Arc<SigningKey>,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
     pub pki: Pki,
@@ -143,27 +148,48 @@ pub struct AppState {
 pub struct AuthClaims {
     pub sub: Uuid,
     pub jti: Uuid,
+    pub kid: Option<Uuid>,
     pub rjti: Option<Uuid>,
     pub iat: u64,
     pub exp: u64,
     pub tkn_type: TokenType,
 }
 
+impl FetchableKid for AuthClaims {
+    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
+        &mut self.kid
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct DsClaims {
     pub sub: Uuid,
+    pub kid: Option<Uuid>,
     pub aud: Uuid,
     pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
 }
 
+impl FetchableKid for DsClaims {
+    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
+        &mut self.kid
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PrivClaims {
     pub priv_level: PrivilegeT,
+    pub kid: Option<Uuid>,
     pub jti: Uuid,
     pub iat: u64,
     pub exp: u64,
+}
+
+impl FetchableKid for PrivClaims {
+    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
+        &mut self.kid
+    }
 }
 
 pub struct Intermediate {

@@ -166,7 +166,7 @@ pub async fn get_intermediate_keys(
         )
         .map_err(|_| InternalError::DecodeEncodeErr)?;
 
-        //TODO: NOT VALIDATED YET DO THAT LATER
+        //TODO: NOT VALIDATED(verify_strict) YET DO THAT LATER
         let sig = Signature::from_bytes(
             cert.signature().as_bytes().ok_or(InternalError::DecodeEncodeErr)?
             .try_into().map_err(|_| InternalError::DecodeEncodeErr)?

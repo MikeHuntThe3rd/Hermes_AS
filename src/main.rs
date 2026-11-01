@@ -11,6 +11,7 @@ use axum::{
     Router, http::{Method, StatusCode, header}, routing::{delete, get, patch, post},
 };
 
+use ed25519_dalek::SigningKey;
 use fred::{interfaces::ClientLike, types::{Builder, config::{Config, TcpConfig}}};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::{
@@ -93,11 +94,15 @@ async fn setup() -> AppState {
         .await
         .expect("client init is expected to succeed");
 
-    let state = AppState {
-        secret_b_array: env::var("SECRET")
+    let secret_bytes: [u8; 32] = env::var("SECRET")
             .expect("the jwt secret is expected to exist")
-            .into_bytes()
-            .into(),
+            .into_bytes().try_into()
+            .expect("the string needs to be serializable to a size 32 byte array");
+
+    let state = AppState {
+        secret_b_array: Arc::new(secret_bytes),
+        jwt_signer: 
+            Arc::new(SigningKey::from_bytes(&secret_bytes)),
         pg_interface: DbInterface::new(db_conn_pool)
             .await
             .expect("failed to create the postgres db connection"),
