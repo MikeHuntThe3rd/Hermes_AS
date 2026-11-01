@@ -15,7 +15,6 @@ pub struct StrippedUser {
   home_ds: String
 }
 
-
 pub async fn update_self(
     auth: AuthUser,
     State(mut state): State<AppState>,
@@ -87,3 +86,4 @@ pub async fn update_self(
         data: None,
     });
 }
+

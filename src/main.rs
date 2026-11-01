@@ -18,7 +18,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_intermediate_keys, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -156,7 +156,7 @@ async fn main() {
         .route("/lookup", get(palceholder_handler));
 
     let pki: Router<AppState> = Router::new()
-        .route("/intermediates", get(palceholder_handler))
+        .route("/intermediates", get(get_intermediate_keys))
         .route("/well-known", get(palceholder_handler));
 
     let dir: Router<AppState> = Router::new()

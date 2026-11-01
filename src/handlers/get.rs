@@ -1,11 +1,22 @@
-use axum::{extract::{Path, State}, http::StatusCode};
+use axum::{extract::{Path, State}, http::{StatusCode}};
 use base64::Engine;
-use ed25519_dalek::{Signer};
+use der::Decode;
+use ed25519_dalek::{Signature, Signer, VerifyingKey};
 use serde::Serialize;
 use time::OffsetDateTime;
 use uuid::Uuid;
+use x509_cert::Certificate;
 
 use crate::{axum_trait_impls::extractors::AuthUser, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Device, Res, User}};
+
+#[derive(Serialize)]
+pub struct IntermediateKeys {
+    pub key_id: String,
+    pub public_key: String,
+    pub not_before: i64,
+    pub not_after: i64,
+    pub root_signature: String
+}
 
 #[derive(Serialize)]
 pub struct UserProfile {
@@ -132,5 +143,50 @@ pub async fn get_signed_devices(
         success: true, 
         msg: String::new(), 
         data: Some(res_list) 
+    });
+}
+
+pub async fn get_intermediate_keys(
+    _auth: AuthUser,
+    State(state): State<AppState>
+) -> Result<Res<Vec<IntermediateKeys>>, InternalError> {
+    
+    let mut res_imks: Vec<IntermediateKeys> = Vec::with_capacity(state.pki.intermediates.len());
+
+    for imk in &*state.pki.intermediates {
+        let cert = Certificate::from_der(&imk.cert_der)
+        .map_err(|_| InternalError::DecodeEncodeErr)?;
+        
+        let pubk_bstring = &cert.tbs_certificate().subject_public_key_info()
+        .subject_public_key;
+
+        let pubk = VerifyingKey::from_bytes(
+            pubk_bstring.as_bytes().ok_or(InternalError::DecodeEncodeErr)?
+            .try_into().map_err(|_| InternalError::DecodeEncodeErr)?
+        )
+        .map_err(|_| InternalError::DecodeEncodeErr)?;
+
+        //TODO: NOT VALIDATED YET DO THAT LATER
+        let sig = Signature::from_bytes(
+            cert.signature().as_bytes().ok_or(InternalError::DecodeEncodeErr)?
+            .try_into().map_err(|_| InternalError::DecodeEncodeErr)?
+        );
+
+        let im = IntermediateKeys {
+            key_id: imk.key_id.clone(),
+            public_key: B64_ENGINE.encode(pubk.as_bytes()),
+            not_before: imk.not_before,
+            not_after: imk.not_after,
+            root_signature: B64_ENGINE.encode(sig.to_bytes()),
+        };
+
+        res_imks.push(im);
+    }
+
+    return Ok(Res { 
+        status: StatusCode::OK, 
+        success: true, 
+        msg: String::new(), 
+        data: Some( res_imks )
     });
 }
