@@ -11,6 +11,7 @@ use axum::{
     Router, http::{Method, StatusCode, header}, routing::{delete, get, patch, post},
 };
 
+use base64::Engine;
 use ed25519_dalek::SigningKey;
 use fred::{interfaces::ClientLike, types::{Builder, config::{Config, TcpConfig}}};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -19,7 +20,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_intermediate_keys, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{PLACE_HOLDER_UUID, Res}};
+use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_intermediate_keys, get_jwt_okp_keys, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{B64_ENGINE, JwtSignerKey, PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -99,10 +100,20 @@ async fn setup() -> AppState {
             .into_bytes().try_into()
             .expect("the string needs to be serializable to a size 32 byte array");
 
+    let signer = SigningKey::from_bytes(&secret_bytes);
+
     let state = AppState {
         secret_b_array: Arc::new(secret_bytes),
-        jwt_signer: 
-            Arc::new(SigningKey::from_bytes(&secret_bytes)),
+        jwt_okp: 
+            Arc::new(JwtSignerKey {
+                kid: Uuid::new_v4(),
+                kty: "OKP".to_string(),
+                alg: "EdDSA".to_string(),
+                crv: "Ed25519".to_string(),
+                usage: "sig".to_string(),
+                x: B64_ENGINE.encode(signer.verifying_key().as_bytes()),
+                signer: signer
+            }),
         pg_interface: DbInterface::new(db_conn_pool)
             .await
             .expect("failed to create the postgres db connection"),
@@ -162,7 +173,7 @@ async fn main() {
 
     let pki: Router<AppState> = Router::new()
         .route("/intermediates", get(get_intermediate_keys))
-        .route("/well-known", get(palceholder_handler));
+        .route("/JWKS", get(get_jwt_okp_keys));
 
     let dir: Router<AppState> = Router::new()
         .route("/intermediates", get(palceholder_handler))

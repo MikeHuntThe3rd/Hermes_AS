@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Database, Postgres, postgres::PgArguments, query::QueryAs};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
+use x509_cert::serial_number;
 
 /* ===== CONSTS ===== */
 
@@ -41,8 +42,9 @@ pub trait Bindable<DB: Database> {
         Self: Sized;
 }
 
-pub trait FetchableKid {
+pub trait FetchableSignature {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>; 
+    fn fetch_mut_Signature(&mut self) -> &mut Option<String>; 
 }
 
 /* ===== ENUMS ===== */
@@ -135,10 +137,20 @@ pub struct Deletion {
     pub user_id: Uuid,
 }
 
+pub struct JwtSignerKey {
+    pub kid: Uuid,
+    pub kty: String,
+    pub usage: String,
+    pub crv: String,
+    pub alg: String,
+    pub x: String,
+    pub signer: SigningKey
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub secret_b_array: Arc<[u8; 32]>,
-    pub jwt_signer: Arc<SigningKey>,
+    pub jwt_okp: Arc<JwtSignerKey>,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
     pub pki: Pki,
@@ -149,15 +161,20 @@ pub struct AuthClaims {
     pub sub: Uuid,
     pub jti: Uuid,
     pub kid: Option<Uuid>,
+    pub signature: Option<String>,
     pub rjti: Option<Uuid>,
     pub iat: u64,
     pub exp: u64,
     pub tkn_type: TokenType,
 }
 
-impl FetchableKid for AuthClaims {
+impl FetchableSignature for AuthClaims {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        &mut self.kid
+        return &mut self.kid;
+    }
+
+    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
+        return &mut self.signature;
     }
 }
 
@@ -165,15 +182,20 @@ impl FetchableKid for AuthClaims {
 pub struct DsClaims {
     pub sub: Uuid,
     pub kid: Option<Uuid>,
+    pub signature: Option<String>,
     pub aud: Uuid,
     pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
 }
 
-impl FetchableKid for DsClaims {
+impl FetchableSignature for DsClaims {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        &mut self.kid
+        return &mut self.kid;
+    }
+    
+    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
+        return &mut self.signature;
     }
 }
 
@@ -181,14 +203,19 @@ impl FetchableKid for DsClaims {
 pub struct PrivClaims {
     pub priv_level: PrivilegeT,
     pub kid: Option<Uuid>,
+    pub signature: Option<String>,
     pub jti: Uuid,
     pub iat: u64,
     pub exp: u64,
 }
 
-impl FetchableKid for PrivClaims {
+impl FetchableSignature for PrivClaims {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        &mut self.kid
+        return &mut self.kid;
+    }
+    
+    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
+        return &mut self.signature;
     }
 }
 

@@ -52,6 +52,17 @@ pub struct SignedDeviceList {
     pub signature: String,
 }
 
+#[derive(Serialize)]
+pub struct Jwks {
+    pub kty: String,
+    pub crv: String,
+    pub x: String,
+    pub kid: Uuid,
+    pub alg: String,
+    #[serde(rename = "use")]
+    pub usage: String
+}
+
 pub async fn get_user_profile(
     auth: AuthUser,
     State(mut state): State<AppState>, 
@@ -189,4 +200,20 @@ pub async fn get_intermediate_keys(
         msg: String::new(), 
         data: Some( res_imks )
     });
+}
+
+pub async fn get_jwt_okp_keys(
+    _auth: AuthUser,
+    State(state): State<AppState>
+) -> Result<Res<Jwks>, InternalError> {
+    return Ok(Res { status: StatusCode::OK, success: true, msg: String::new(), data: Some(
+        Jwks {
+            kty: state.jwt_okp.kty.clone(),
+            crv: state.jwt_okp.crv.clone(),
+            x: B64_ENGINE.encode(state.jwt_okp.signer.verifying_key().as_bytes()),
+            kid: state.jwt_okp.kid.clone(),
+            alg: state.jwt_okp.alg.clone(),
+            usage: state.jwt_okp.usage.clone(),
+        }
+    ) });
 }

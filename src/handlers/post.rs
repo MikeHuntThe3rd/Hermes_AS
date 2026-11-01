@@ -80,25 +80,25 @@ pub async fn login(
         let access = encode_to_jwt(AuthClaims {
             sub: user.id,
             kid: None,
+            signature: None,
             jti: Uuid::new_v4(),
             rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Access,
-        }, &*state.secret_b_array)
-            .await
+        }, &state)
             .map_err(|e| GenericErr::Internal(e))?;
         
         let refresh = encode_to_jwt(AuthClaims {
             sub: user.id,
             kid: None,
+            signature: None,
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
-        }, &*state.secret_b_array)
-            .await
+        }, &state)
             .map_err(|e| GenericErr::Internal(e))?;
 
         let dta = UserTokenObj {
@@ -159,25 +159,25 @@ pub async fn refresh(
     let access = encode_to_jwt(AuthClaims {
             sub: tkn_data.claims.sub,
             kid: None,
+        signature: None,
             jti: Uuid::new_v4(),
             rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Access,
-        }, &*state.secret_b_array)
-            .await
+        }, &state)
             .map_err(|e| GenericErr::Internal(e))?;
         
         let refresh = encode_to_jwt(AuthClaims {
             sub: tkn_data.claims.sub,
             kid: None,
+        signature: None,
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
-        }, &*state.secret_b_array)
-            .await
+        }, &state)
             .map_err(|e| GenericErr::Internal(e))?;
 
     let set_key = format!("{BLACKLIST_STR}{}", tkn_data.claims.jti);
@@ -256,25 +256,25 @@ pub async fn sign_up(
     let access = encode_to_jwt(AuthClaims {
         sub: user.id,
         kid: None,
+        signature: None,
         jti: Uuid::new_v4(),
         rjti: Some(refersh_uuid),
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
         tkn_type: TokenType::Access,
-    }, &*state.secret_b_array)
-        .await
+    }, &state)
         .map_err(|e| GenericErr::Internal(e))?;
     
     let refresh = encode_to_jwt(AuthClaims {
         sub: user.id,
         kid: None,
+        signature: None,
         jti: Uuid::new_v4(),
         rjti: None,
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
         tkn_type: TokenType::Refresh,
-    }, &*state.secret_b_array)
-        .await
+    }, &state)
         .map_err(|e| GenericErr::Internal(e))?;
 
     tr.commit()
@@ -321,13 +321,14 @@ pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Js
     let claims = DsClaims {
         sub: auth.user_id,
         kid: None,
+        signature: None,
         aud: data.ds_id,
         device_id: data.device_id,
         iat: now.clone().unix_timestamp() as u64,
         exp: (now + Duration::minutes(10)).unix_timestamp() as u64
     };
 
-    let ds_token = encode_to_jwt(claims, &*state.secret_b_array).await?;
+    let ds_token = encode_to_jwt(claims, &state)?;
 
     return Ok(Res { 
         status: StatusCode::OK, 
@@ -357,13 +358,13 @@ pub async fn create_new_user_invite(
     let claims =  PrivClaims {
         priv_level: data.prv_level,
         kid: None,
+        signature: None,
         jti: Uuid::new_v4(),
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc + Duration::minutes(30)).unix_timestamp() as u64,
     };
 
-    let inv_jwt = encode_to_jwt(claims, &*state.secret_b_array)
-        .await
+    let inv_jwt = encode_to_jwt(claims, &state)
         .map_err(|e| GenericErr::Internal(e))?;
 
     return Ok(Res {
