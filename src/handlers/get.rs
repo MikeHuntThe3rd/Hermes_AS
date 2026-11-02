@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use x509_cert::Certificate;
 
-use crate::{axum_trait_impls::extractors::AuthUser, responses::error_t::InternalError, types::{AppState, B64_ENGINE, Device, Res, User}};
+use crate::{axum_trait_impls::extractors::AuthUser, responses::error_t::InternalError, types::{AppState, B64_ENGINE, BindVal::ID, Device, Res, User}};
 
 #[derive(Serialize)]
 pub struct IntermediateKeys {
@@ -216,4 +216,26 @@ pub async fn get_jwt_okp_keys(
             usage: state.jwt_okp.usage.clone(),
         }
     ) });
+}
+
+pub async fn get_users_by_username(
+    _auth: AuthUser,
+    State(mut state): State<AppState>,
+    Path(nickname): Path<String>
+) -> Result<Res<Vec<UserProfile>>, InternalError>{
+    let all_users: Vec<UserProfile> = state.pg_interface.select_many::<i8, User>(None, None)
+    .await?.into_iter()
+    .map(|user| UserProfile{user_id:user.id, nickname:user.nickname, pfp:user.pfp, home_ds:user.home_ds})
+    .collect();
+
+    let mut searched_users: Vec<UserProfile> = Vec::new();
+    for user in all_users{
+        if user.nickname == nickname{
+            searched_users.push(user);
+        }
+    }
+
+    return Ok(Res {status: StatusCode::OK, success:true, msg: String::new(), data: Some(
+        searched_users
+    )});
 }

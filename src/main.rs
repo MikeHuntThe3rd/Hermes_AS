@@ -20,7 +20,7 @@ use tower_http::{
 };
 use uuid::Uuid;
 
-use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_intermediate_keys, get_jwt_okp_keys, get_signed_devices, get_user_profile}, patch::update_self, post::*}, responses::error_t::InternalError, types::{B64_ENGINE, JwtSignerKey, PLACE_HOLDER_UUID, Res}};
+use crate::{certificates::intermediate_keys::Pki, db::DbInterface, handlers::{delete::{delete_self, revoke_device}, get::{get_devices, get_intermediate_keys, get_jwt_okp_keys, get_signed_devices, get_user_profile, get_users_by_username}, patch::update_self, post::*}, responses::error_t::InternalError, types::{B64_ENGINE, JwtSignerKey, PLACE_HOLDER_UUID, Res}};
 use crate::types::PrivilegeT;
 use types::{AppState, User};
 
@@ -169,7 +169,7 @@ async fn main() {
         .route("/me", patch(update_self))
         .route("/{user_id}/profile", get(get_user_profile))
         .route("/{user_id}/devices", get(get_signed_devices))
-        .route("/lookup", get(palceholder_handler));
+        .route("/lookup/{nickname}", get(get_users_by_username));
 
     let pki: Router<AppState> = Router::new()
         .route("/intermediates", get(get_intermediate_keys))
