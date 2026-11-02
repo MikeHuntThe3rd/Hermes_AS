@@ -22,7 +22,7 @@ pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
 
 pub const REG_LBL: &[u8] = b"herpesz-api";
 
-pub const B64_ENGINE: GeneralPurpose= URL_SAFE_NO_PAD;
+pub const B64_ENGINE: GeneralPurpose = URL_SAFE_NO_PAD;
 
 /* ===== TRAITS ===== */
 
@@ -43,8 +43,8 @@ pub trait Bindable<DB: Database> {
 }
 
 pub trait FetchableSignature {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>; 
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String>; 
+    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>;
+    fn fetch_mut_Signature(&mut self) -> &mut Option<String>;
 }
 
 /* ===== ENUMS ===== */
@@ -128,13 +128,24 @@ pub struct Device {
     pub cert_serial: Vec<u8>,
     pub cert_not_after: i64,
     pub key_id: String,
-    pub is_revoked: bool
+    pub is_revoked: bool,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
-#[ids = "user_id"]
+#[ids = "seq"]
 pub struct Deletion {
+    pub seq: i64,
     pub user_id: Uuid,
+    pub deleted_at: i64,
+    pub key_id: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
+#[ids = "id"]
+pub struct Ds {
+    pub id: Uuid,
+    pub ep: String,
 }
 
 pub struct JwtSignerKey {
@@ -144,7 +155,7 @@ pub struct JwtSignerKey {
     pub crv: String,
     pub alg: String,
     pub x: String,
-    pub signer: SigningKey
+    pub signer: SigningKey,
 }
 
 #[derive(Clone)]
@@ -193,7 +204,7 @@ impl FetchableSignature for DsClaims {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
         return &mut self.kid;
     }
-    
+
     fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
         return &mut self.signature;
     }
@@ -213,7 +224,7 @@ impl FetchableSignature for PrivClaims {
     fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
         return &mut self.kid;
     }
-    
+
     fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
         return &mut self.signature;
     }
@@ -237,5 +248,3 @@ pub struct IssuedLeaf {
     pub key_id: String,
     pub intermediate_der: Vec<u8>,
 }
-
-
