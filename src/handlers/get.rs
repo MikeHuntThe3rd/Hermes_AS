@@ -6,7 +6,6 @@ use base64::Engine;
 use der::Decode;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::Serialize;
-use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 use x509_cert::Certificate;
@@ -84,6 +83,21 @@ pub struct Jwks {
     pub alg: String,
     #[serde(rename = "use")]
     pub usage: String,
+}
+
+#[derive(Serialize)]
+pub struct DeletedUserElement {
+    pub seq: i64,
+    pub user_id: Uuid,
+    pub deleted_at: i64,
+    pub key_id: String,
+    pub signature: Vec<u8>,
+}
+
+#[derive(Serialize)]
+pub struct DeletedUsers {
+    pub cursor: Option<String>,
+    pub deletions: Vec<DeletedUserElement>,
 }
 
 // ===== Handlers =====
@@ -296,3 +310,69 @@ pub async fn get_signed_ds_eps(
     });
 }
 
+pub async fn get_initial_deletions(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Res<DeletedUsers>, InternalError> {
+    return get_deletions(state, None).await;
+}
+
+pub async fn get_deletions_from(
+    _auth: AuthUser,
+    State(state): State<AppState>,
+    Path(cursor): Path<String>,
+) -> Result<Res<DeletedUsers>, InternalError> {
+    return get_deletions(state, Some(cursor)).await;
+}
+
+async fn get_deletions(
+    mut state: AppState,
+    cursor: Option<String>,
+) -> Result<Res<DeletedUsers>, InternalError> {
+    let deleted_users: Vec<DeletedUserElement> = if let Some(pin) = cursor {
+        let seq_pin = i64::from_le_bytes(
+            B64_ENGINE
+                .decode(pin)
+                .map_err(|_| InternalError::DecodeEncodeErr)?
+                .try_into()
+                .map_err(|_| InternalError::DecodeEncodeErr)?,
+        );
+
+        let query = sqlx::query_as!(
+            DeletedUserElement,
+            "SELECT seq, user_id, deleted_at, key_id, signature FROM deletions WHERE seq < $1 ORDER BY seq DESC LIMIT 100",
+            seq_pin
+        );
+
+        state.pg_interface.generic_fetch(query).await?
+    } else {
+        let query = sqlx::query_as!(
+            DeletedUserElement,
+            "SELECT seq, user_id, deleted_at, key_id, signature FROM deletions ORDER BY seq DESC LIMIT 100"
+        );
+
+        state.pg_interface.generic_fetch(query).await?
+    };
+
+    if deleted_users.is_empty() {
+        return Err(InternalError::NoMatches);
+    }
+
+    let cursor: Option<String> = if deleted_users.len() == 100
+        && let Some(pin) = deleted_users.iter().next_back()
+    {
+        Some(B64_ENGINE.encode(pin.seq.to_le_bytes()))
+    } else {
+        None
+    };
+
+    return Ok(Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(DeletedUsers {
+            cursor,
+            deletions: deleted_users,
+        }),
+    });
+}

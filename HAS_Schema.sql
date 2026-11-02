@@ -12,6 +12,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE devices (
+    --make sure this uuid is v7
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -20,8 +21,7 @@ CREATE TABLE devices (
   cert_serial BYTEA NOT NULL,
   cert_not_after BIGINT NOT NULL,
   key_id TEXT NOT NULL,
-  is_revoked BOOL NOT NULL,
-  CONSTRIANT uuid_version CHECK (uuid_extract_version(id) = 7)
+  is_revoked BOOL NOT NULL
 );
 
 CREATE TABLE dss (
