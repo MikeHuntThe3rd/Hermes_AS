@@ -176,63 +176,27 @@ pub struct AppState {
 pub struct AuthClaims {
     pub sub: Uuid,
     pub jti: Uuid,
-    pub kid: Option<Uuid>,
-    pub signature: Option<String>,
     pub rjti: Option<Uuid>,
     pub iat: u64,
     pub exp: u64,
     pub tkn_type: TokenType,
 }
 
-impl FetchableSignature for AuthClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct DsClaims {
     pub sub: Uuid,
-    pub kid: Option<Uuid>,
-    pub signature: Option<String>,
     pub aud: Uuid,
     pub device_id: Uuid,
     pub iat: u64,
     pub exp: u64,
 }
 
-impl FetchableSignature for DsClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct PrivClaims {
     pub priv_level: PrivilegeT,
-    pub kid: Option<Uuid>,
-    pub signature: Option<String>,
     pub jti: Uuid,
     pub iat: u64,
     pub exp: u64,
-}
-
-impl FetchableSignature for PrivClaims {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid> {
-        return &mut self.kid;
-    }
-
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String> {
-        return &mut self.signature;
-    }
 }
 
 pub struct Intermediate {

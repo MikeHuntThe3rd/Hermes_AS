@@ -9,7 +9,7 @@ use crate::{
 use axum::{Json, extract::State, http::StatusCode};
 use base64::Engine;
 use fred::interfaces::KeysInterface;
-use jsonwebtoken::{DecodingKey, Validation, decode};
+use jsonwebtoken::{Validation, decode};
 use serde::Deserialize;
 use time::{Duration, OffsetDateTime, SignedDuration};
 use tls_codec::{Serialize, VLByteSlice};
@@ -87,8 +87,6 @@ pub async fn login(
         let access = encode_to_jwt(
             AuthClaims {
                 sub: user.id,
-                kid: None,
-                signature: None,
                 jti: Uuid::new_v4(),
                 rjti: Some(refersh_uuid),
                 iat: now_utc.clone().unix_timestamp() as u64,
@@ -102,8 +100,6 @@ pub async fn login(
         let refresh = encode_to_jwt(
             AuthClaims {
                 sub: user.id,
-                kid: None,
-                signature: None,
                 jti: Uuid::new_v4(),
                 rjti: None,
                 iat: now_utc.clone().unix_timestamp() as u64,
@@ -172,8 +168,6 @@ pub async fn refresh(
     let access = encode_to_jwt(
         AuthClaims {
             sub: tkn_data.claims.sub,
-            kid: None,
-            signature: None,
             jti: Uuid::new_v4(),
             rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
@@ -187,8 +181,6 @@ pub async fn refresh(
     let refresh = encode_to_jwt(
         AuthClaims {
             sub: tkn_data.claims.sub,
-            kid: None,
-            signature: None,
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
@@ -278,8 +270,6 @@ pub async fn sign_up(
     let access = encode_to_jwt(
         AuthClaims {
             sub: user.id,
-            kid: None,
-            signature: None,
             jti: Uuid::new_v4(),
             rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
@@ -293,8 +283,6 @@ pub async fn sign_up(
     let refresh = encode_to_jwt(
         AuthClaims {
             sub: user.id,
-            kid: None,
-            signature: None,
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
@@ -354,8 +342,6 @@ pub async fn mint_ds_token(
     let now = OffsetDateTime::now_utc();
     let claims = DsClaims {
         sub: auth.user_id,
-        kid: None,
-        signature: None,
         aud: data.ds_id,
         device_id: data.device_id,
         iat: now.clone().unix_timestamp() as u64,
@@ -390,8 +376,6 @@ pub async fn create_new_user_invite(
     let now_utc = OffsetDateTime::now_utc();
     let claims = PrivClaims {
         priv_level: data.prv_level,
-        kid: None,
-        signature: None,
         jti: Uuid::new_v4(),
         iat: now_utc.clone().unix_timestamp() as u64,
         exp: (now_utc + Duration::minutes(30)).unix_timestamp() as u64,
