@@ -1,11 +1,18 @@
+use crate::{
+    axum_trait_impls::extractors::{AuthInvite, AuthUser},
+    certificates::{
+        DeviceRegistration,
+        helper_functions::{issue_leaf, validate_registration},
+    },
+    responses::error_t::*,
+};
 use axum::{Json, extract::State, http::StatusCode};
 use base64::Engine;
 use fred::interfaces::KeysInterface;
 use jsonwebtoken::{DecodingKey, Validation, decode};
-use tls_codec::{Serialize, VLByteSlice};
-use crate::{axum_trait_impls::extractors::{AuthInvite, AuthUser}, certificates::{DeviceRegistration, helper_functions::{issue_leaf, validate_registration}}, responses::error_t::*};
-use serde::{Deserialize};
+use serde::Deserialize;
 use time::{Duration, OffsetDateTime, SignedDuration};
+use tls_codec::{Serialize, VLByteSlice};
 use uuid::Uuid;
 
 use crate::{axum_trait_impls::creation::encode_to_jwt, responses::error_t::GenericErr, types::*};
@@ -77,29 +84,35 @@ pub async fn login(
 
         let refersh_uuid = Uuid::new_v4();
 
-        let access = encode_to_jwt(AuthClaims {
-            sub: user.id,
-            kid: None,
-            signature: None,
-            jti: Uuid::new_v4(),
-            rjti: Some(refersh_uuid),
-            iat: now_utc.clone().unix_timestamp() as u64,
-            exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
-            tkn_type: TokenType::Access,
-        }, &state)
-            .map_err(|e| GenericErr::Internal(e))?;
-        
-        let refresh = encode_to_jwt(AuthClaims {
-            sub: user.id,
-            kid: None,
-            signature: None,
-            jti: Uuid::new_v4(),
-            rjti: None,
-            iat: now_utc.clone().unix_timestamp() as u64,
-            exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
-            tkn_type: TokenType::Refresh,
-        }, &state)
-            .map_err(|e| GenericErr::Internal(e))?;
+        let access = encode_to_jwt(
+            AuthClaims {
+                sub: user.id,
+                kid: None,
+                signature: None,
+                jti: Uuid::new_v4(),
+                rjti: Some(refersh_uuid),
+                iat: now_utc.clone().unix_timestamp() as u64,
+                exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
+                tkn_type: TokenType::Access,
+            },
+            &state,
+        )
+        .map_err(|e| GenericErr::Internal(e))?;
+
+        let refresh = encode_to_jwt(
+            AuthClaims {
+                sub: user.id,
+                kid: None,
+                signature: None,
+                jti: Uuid::new_v4(),
+                rjti: None,
+                iat: now_utc.clone().unix_timestamp() as u64,
+                exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
+                tkn_type: TokenType::Refresh,
+            },
+            &state,
+        )
+        .map_err(|e| GenericErr::Internal(e))?;
 
         let dta = UserTokenObj {
             user_data: user,
@@ -126,8 +139,8 @@ pub async fn refresh(
 ) -> Result<Res<TokenPair>, GenericErr> {
     let tkn_data = decode::<AuthClaims>(
         &data.token,
-        &DecodingKey::from_secret(&*state.secret_b_array),
-        &Validation::default(),
+        &state.jwt_okp.decoding,
+        &Validation::new(jsonwebtoken::Algorithm::EdDSA),
     )
     .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;
 
@@ -156,29 +169,35 @@ pub async fn refresh(
 
     let refersh_uuid = Uuid::new_v4();
 
-    let access = encode_to_jwt(AuthClaims {
+    let access = encode_to_jwt(
+        AuthClaims {
             sub: tkn_data.claims.sub,
             kid: None,
-        signature: None,
+            signature: None,
             jti: Uuid::new_v4(),
             rjti: Some(refersh_uuid),
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
             tkn_type: TokenType::Access,
-        }, &state)
-            .map_err(|e| GenericErr::Internal(e))?;
-        
-        let refresh = encode_to_jwt(AuthClaims {
+        },
+        &state,
+    )
+    .map_err(|e| GenericErr::Internal(e))?;
+
+    let refresh = encode_to_jwt(
+        AuthClaims {
             sub: tkn_data.claims.sub,
             kid: None,
-        signature: None,
+            signature: None,
             jti: Uuid::new_v4(),
             rjti: None,
             iat: now_utc.clone().unix_timestamp() as u64,
             exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
             tkn_type: TokenType::Refresh,
-        }, &state)
-            .map_err(|e| GenericErr::Internal(e))?;
+        },
+        &state,
+    )
+    .map_err(|e| GenericErr::Internal(e))?;
 
     let set_key = format!("{BLACKLIST_STR}{}", tkn_data.claims.jti);
     let ttl = tkn_data.claims.exp as i64 - OffsetDateTime::now_utc().unix_timestamp() + 60;
@@ -228,8 +247,11 @@ pub async fn sign_up(
             InternalError::InvalidAccountCredentials,
         ));
     }
-    let mut tr = state.pg_interface.begin_transaction()
-    .await.map_err(|e| GenericErr::Internal(e))?;
+    let mut tr = state
+        .pg_interface
+        .begin_transaction()
+        .await
+        .map_err(|e| GenericErr::Internal(e))?;
 
     //TODO: assign an actual ds to the user or let them choose idc
     let user: User = tr
@@ -253,32 +275,37 @@ pub async fn sign_up(
 
     let refersh_uuid = Uuid::new_v4();
 
-    let access = encode_to_jwt(AuthClaims {
-        sub: user.id,
-        kid: None,
-        signature: None,
-        jti: Uuid::new_v4(),
-        rjti: Some(refersh_uuid),
-        iat: now_utc.clone().unix_timestamp() as u64,
-        exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
-        tkn_type: TokenType::Access,
-    }, &state)
-        .map_err(|e| GenericErr::Internal(e))?;
-    
-    let refresh = encode_to_jwt(AuthClaims {
-        sub: user.id,
-        kid: None,
-        signature: None,
-        jti: Uuid::new_v4(),
-        rjti: None,
-        iat: now_utc.clone().unix_timestamp() as u64,
-        exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
-        tkn_type: TokenType::Refresh,
-    }, &state)
-        .map_err(|e| GenericErr::Internal(e))?;
+    let access = encode_to_jwt(
+        AuthClaims {
+            sub: user.id,
+            kid: None,
+            signature: None,
+            jti: Uuid::new_v4(),
+            rjti: Some(refersh_uuid),
+            iat: now_utc.clone().unix_timestamp() as u64,
+            exp: (now_utc.clone() + Duration::minutes(10)).unix_timestamp() as u64,
+            tkn_type: TokenType::Access,
+        },
+        &state,
+    )
+    .map_err(|e| GenericErr::Internal(e))?;
 
-    tr.commit()
-    .await.map_err(|e| GenericErr::Internal(e))?;
+    let refresh = encode_to_jwt(
+        AuthClaims {
+            sub: user.id,
+            kid: None,
+            signature: None,
+            jti: Uuid::new_v4(),
+            rjti: None,
+            iat: now_utc.clone().unix_timestamp() as u64,
+            exp: (now_utc.clone() + Duration::days(3)).unix_timestamp() as u64,
+            tkn_type: TokenType::Refresh,
+        },
+        &state,
+    )
+    .map_err(|e| GenericErr::Internal(e))?;
+
+    tr.commit().await.map_err(|e| GenericErr::Internal(e))?;
 
     let res = UserTokenObj {
         user_data: user,
@@ -314,8 +341,15 @@ pub async fn sign_up(
     })
 }
 
-pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Json(data): Json<DsCreds>) -> Result<Res<SingleJwtObj>, InternalError> {
-    state.pg_interface.select_one::<Uuid, Device>((&["id"], &[data.device_id])).await?;
+pub async fn mint_ds_token(
+    auth: AuthUser,
+    State(mut state): State<AppState>,
+    Json(data): Json<DsCreds>,
+) -> Result<Res<SingleJwtObj>, InternalError> {
+    state
+        .pg_interface
+        .select_one::<Uuid, Device>((&["id"], &[data.device_id]))
+        .await?;
 
     let now = OffsetDateTime::now_utc();
     let claims = DsClaims {
@@ -325,18 +359,17 @@ pub async fn mint_ds_token(auth: AuthUser, State(mut state): State<AppState>, Js
         aud: data.ds_id,
         device_id: data.device_id,
         iat: now.clone().unix_timestamp() as u64,
-        exp: (now + Duration::minutes(10)).unix_timestamp() as u64
+        exp: (now + Duration::minutes(10)).unix_timestamp() as u64,
     };
 
     let ds_token = encode_to_jwt(claims, &state)?;
 
-    return Ok(Res { 
-        status: StatusCode::OK, 
-        success: true, 
-        msg: String::new(), 
-        data: Some(SingleJwtObj {
-        token: ds_token
-    })});
+    return Ok(Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(SingleJwtObj { token: ds_token }),
+    });
 }
 
 pub async fn create_new_user_invite(
@@ -355,7 +388,7 @@ pub async fn create_new_user_invite(
     }
 
     let now_utc = OffsetDateTime::now_utc();
-    let claims =  PrivClaims {
+    let claims = PrivClaims {
         priv_level: data.prv_level,
         kid: None,
         signature: None,
@@ -364,8 +397,7 @@ pub async fn create_new_user_invite(
         exp: (now_utc + Duration::minutes(30)).unix_timestamp() as u64,
     };
 
-    let inv_jwt = encode_to_jwt(claims, &state)
-        .map_err(|e| GenericErr::Internal(e))?;
+    let inv_jwt = encode_to_jwt(claims, &state).map_err(|e| GenericErr::Internal(e))?;
 
     return Ok(Res {
         status: StatusCode::CREATED,
@@ -375,49 +407,57 @@ pub async fn create_new_user_invite(
     });
 }
 
-pub async  fn add_device(
-    auth: AuthUser, 
-    State(mut state): State<AppState>, 
-    Json(data): Json<DeviceRegistration>
+pub async fn add_device(
+    auth: AuthUser,
+    State(mut state): State<AppState>,
+    Json(data): Json<DeviceRegistration>,
 ) -> Result<Res<DeviceCredential>, GenericErr> {
     let valid_reg = validate_registration(auth.user_id, &data)?;
 
     let now = OffsetDateTime::now_utc().unix_timestamp();
-    let signer = state.pki.get_im_key(now)
-    .ok_or(InternalError::NoMatches)?;
+    let signer = state.pki.get_im_key(now).ok_or(InternalError::NoMatches)?;
 
     let device_id = Uuid::now_v7();
 
     let leaf = issue_leaf(
-        signer, 
-        auth.user_id, 
-        device_id, 
-        &valid_reg.verifying_key, 
-        now, 
-        SignedDuration::days(1).as_seconds_f64() as i64
+        signer,
+        auth.user_id,
+        device_id,
+        &valid_reg.verifying_key,
+        now,
+        SignedDuration::days(1).as_seconds_f64() as i64,
     )?;
 
     let mut tr = state.pg_interface.begin_transaction().await?;
 
-    tr.select_one::<Uuid, User>((&["id"], &[auth.user_id])).await?;
+    tr.select_one::<Uuid, User>((&["id"], &[auth.user_id]))
+        .await?;
 
-    tr.insert_one(Device {
-        id: device_id,
-        user_id: auth.user_id,
-        name: data.device_name,
-        cert_der: leaf.leaf_der.clone(),
-        sig_pubkey: data.sig_pubkey.into_bytes(),
-        cert_serial: leaf.serial,
-        cert_not_after: leaf.not_after,
-        key_id: leaf.key_id.clone(),
-        is_revoked: false
-    }, true).await?;
+    tr.insert_one(
+        Device {
+            id: device_id,
+            user_id: auth.user_id,
+            name: data.device_name,
+            cert_der: leaf.leaf_der.clone(),
+            sig_pubkey: data.sig_pubkey.into_bytes(),
+            cert_serial: leaf.serial,
+            cert_not_after: leaf.not_after,
+            key_id: leaf.key_id.clone(),
+            is_revoked: false,
+        },
+        true,
+    )
+    .await?;
 
     tr.commit().await?;
 
-    let chain: Vec<VLByteSlice> = vec![VLByteSlice(&leaf.leaf_der), VLByteSlice(&leaf.intermediate_der)];
-    let chain_bytes = chain.tls_serialize_detached()
-    .map_err(|_| InternalError::DecodeEncodeErr)?;
+    let chain: Vec<VLByteSlice> = vec![
+        VLByteSlice(&leaf.leaf_der),
+        VLByteSlice(&leaf.intermediate_der),
+    ];
+    let chain_bytes = chain
+        .tls_serialize_detached()
+        .map_err(|_| InternalError::DecodeEncodeErr)?;
 
     let res = DeviceCredential {
         device_id: device_id,
@@ -427,9 +467,10 @@ pub async  fn add_device(
         not_after: leaf.not_after,
     };
 
-    return Ok(Res { status: StatusCode::OK, 
-        success: true, 
-        msg: String::new(), 
-        data: Some(res)
+    return Ok(Res {
+        status: StatusCode::OK,
+        success: true,
+        msg: String::new(),
+        data: Some(res),
     });
 }

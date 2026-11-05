@@ -46,8 +46,8 @@ where
 
         let tkn_data = decode::<AuthClaims>(
             bearer.token(),
-            &DecodingKey::from_secret(&*app_state.secret_b_array),
-            &Validation::default(),
+            &app_state.jwt_okp.decoding,
+            &Validation::new(jsonwebtoken::Algorithm::EdDSA),
         )
         .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;
 
@@ -65,8 +65,10 @@ where
             return Err(GenericErr::Auth(AuthError::ExpiredToken));
         }
 
-        let rjti = tkn_data.claims.rjti
-        .ok_or(GenericErr::Internal(InternalError::DecodeEncodeErr))?;
+        let rjti = tkn_data
+            .claims
+            .rjti
+            .ok_or(GenericErr::Internal(InternalError::DecodeEncodeErr))?;
 
         return Ok(AuthUser {
             user_id: tkn_data.claims.sub,
@@ -92,8 +94,8 @@ where
 
         let tkn_data = decode::<PrivClaims>(
             bearer.token(),
-            &DecodingKey::from_secret(&*app_state.secret_b_array),
-            &Validation::default(),
+            &app_state.jwt_okp.decoding,
+            &Validation::new(jsonwebtoken::Algorithm::EdDSA),
         )
         .map_err(|_| GenericErr::Auth(AuthError::InvalidToken))?;
 

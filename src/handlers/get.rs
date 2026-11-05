@@ -4,7 +4,7 @@ use axum::{
 };
 use base64::Engine;
 use der::Decode;
-use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Serialize;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -275,7 +275,7 @@ pub async fn get_jwt_okp_keys(
         data: Some(Jwks {
             kty: state.jwt_okp.kty.clone(),
             crv: state.jwt_okp.crv.clone(),
-            x: B64_ENGINE.encode(state.jwt_okp.signer.verifying_key().as_bytes()),
+            x: state.jwt_okp.x.clone(),
             kid: state.jwt_okp.kid.clone(),
             alg: state.jwt_okp.alg.clone(),
             usage: state.jwt_okp.usage.clone(),

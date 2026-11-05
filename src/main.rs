@@ -14,7 +14,8 @@ use axum::{
 };
 
 use base64::Engine;
-use ed25519_dalek::SigningKey;
+use der::zeroize::Zeroize;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use fred::{
     interfaces::ClientLike,
     types::{
@@ -22,6 +23,7 @@ use fred::{
         config::{Config, TcpConfig},
     },
 };
+use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -39,10 +41,22 @@ use crate::{
         post::*,
     },
     responses::error_t::InternalError,
-    types::{B64_ENGINE, JwtSignerKey, PLACE_HOLDER_UUID, Res},
+    types::{B64_ENGINE, ED25519_PKCS8_PREFIX, JwtSignerKey, PLACE_HOLDER_UUID, Res},
 };
 use crate::{handlers::get::get_signed_ds_eps, types::PrivilegeT};
 use types::{AppState, User};
+
+fn keys_from_seed(seed: &[u8; 32]) -> (EncodingKey, VerifyingKey) {
+    let mut der = [0u8; 48];
+    der[..16].copy_from_slice(&ED25519_PKCS8_PREFIX);
+    der[16..].copy_from_slice(seed);
+
+    let encoding = EncodingKey::from_ed_der(&der);
+
+    der.zeroize();
+
+    return (encoding, SigningKey::from_bytes(seed).verifying_key());
+}
 
 async fn ensure_master_user(mut state: AppState) {
     let (usr_nm, pswrd) = (
@@ -135,18 +149,19 @@ async fn setup() -> AppState {
         .try_into()
         .expect("the string needs to be serializable to a size 32 byte array");
 
-    let signer = SigningKey::from_bytes(&secret_bytes);
-
+    let (jwt_encoding, public_key) = keys_from_seed(&secret_bytes);
+    let pulic_key_b64 = B64_ENGINE.encode(public_key.as_bytes());
     let state = AppState {
-        secret_b_array: Arc::new(secret_bytes),
         jwt_okp: Arc::new(JwtSignerKey {
             kid: Uuid::new_v4(),
             kty: "OKP".to_string(),
             alg: "EdDSA".to_string(),
             crv: "Ed25519".to_string(),
             usage: "sig".to_string(),
-            x: B64_ENGINE.encode(signer.verifying_key().as_bytes()),
-            signer: signer,
+            encoding: jwt_encoding,
+            decoding: DecodingKey::from_ed_components(&pulic_key_b64)
+                .expect("DecodingKey generation is expected to succeed"),
+            x: pulic_key_b64,
         }),
         pg_interface: DbInterface::new(db_conn_pool)
             .await

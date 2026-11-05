@@ -7,6 +7,7 @@ use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use fred::clients::Client;
+use jsonwebtoken::{DecodingKey, EncodingKey};
 use serde::{Deserialize, Serialize};
 use sqlx::{Database, Postgres, postgres::PgArguments, query::QueryAs};
 use tokio::sync::{mpsc, oneshot};
@@ -23,6 +24,10 @@ pub const PLACE_HOLDER_UUID: Uuid = Uuid::nil();
 pub const REG_LBL: &[u8] = b"herpesz-api";
 
 pub const B64_ENGINE: GeneralPurpose = URL_SAFE_NO_PAD;
+
+pub const ED25519_PKCS8_PREFIX: [u8; 16] = [
+    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+];
 
 /* ===== TRAITS ===== */
 
@@ -155,12 +160,12 @@ pub struct JwtSignerKey {
     pub crv: String,
     pub alg: String,
     pub x: String,
-    pub signer: SigningKey,
+    pub encoding: EncodingKey,
+    pub decoding: DecodingKey,
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    pub secret_b_array: Arc<[u8; 32]>,
     pub jwt_okp: Arc<JwtSignerKey>,
     pub pg_interface: DbInterface<DbPool<Postgres>>,
     pub kvs_client: Client,
