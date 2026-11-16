@@ -11,7 +11,7 @@ use axum_extra::{
 };
 
 use fred::interfaces::KeysInterface;
-use jsonwebtoken::{DecodingKey, Validation, decode};
+use jsonwebtoken::{Validation, decode};
 use uuid::Uuid;
 
 use crate::{

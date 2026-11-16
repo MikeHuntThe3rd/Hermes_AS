@@ -72,10 +72,13 @@ pub async fn login(
 ) -> Result<Res<UserTokenObj>, GenericErr> {
     let user: User = state
         .pg_interface
-        .select_one((
-            &vec!["username", "password"],
-            &vec![&data.username, &data.password],
-        ))
+        .select_one(
+            (
+                &vec!["username", "password"],
+                &vec![&data.username, &data.password],
+            ),
+            LogicalOp::AND,
+        )
         .await
         .map_err(|_| GenericErr::Auth(AuthError::InvalidCredentials))?;
 
@@ -157,7 +160,7 @@ pub async fn refresh(
 
     state
         .pg_interface
-        .select_one::<Uuid, User>((&["id"], &[tkn_data.claims.sub]))
+        .select_one::<Uuid, User>((&["id"], &[tkn_data.claims.sub]), LogicalOp::AND)
         .await
         .map_err(|e| GenericErr::Internal(e))?;
 
@@ -245,7 +248,6 @@ pub async fn sign_up(
         .await
         .map_err(|e| GenericErr::Internal(e))?;
 
-    //TODO: assign an actual ds to the user or let them choose idc
     let user: User = tr
         .insert_one(
             User {
@@ -258,7 +260,7 @@ pub async fn sign_up(
                 changes: 0,
                 pfp: None,
             },
-            false,
+            BindVal::ND,
         )
         .await
         .map_err(|e| GenericErr::Internal(e))?;
@@ -336,7 +338,7 @@ pub async fn mint_ds_token(
 ) -> Result<Res<SingleJwtObj>, InternalError> {
     state
         .pg_interface
-        .select_one::<Uuid, Device>((&["id"], &[data.device_id]))
+        .select_one::<Uuid, Device>((&["id"], &[data.device_id]), LogicalOp::AND)
         .await?;
 
     let now = OffsetDateTime::now_utc();
@@ -365,7 +367,7 @@ pub async fn create_new_user_invite(
 ) -> Result<Res<SingleJwtObj>, GenericErr> {
     let user: User = state
         .pg_interface
-        .select_one((&["id"], &vec![auth.user_id]))
+        .select_one((&["id"], &vec![auth.user_id]), LogicalOp::AND)
         .await
         .map_err(|e| GenericErr::Internal(e))?;
 
@@ -414,7 +416,7 @@ pub async fn add_device(
 
     let mut tr = state.pg_interface.begin_transaction().await?;
 
-    tr.select_one::<Uuid, User>((&["id"], &[auth.user_id]))
+    tr.select_one::<Uuid, User>((&["id"], &[auth.user_id]), LogicalOp::AND)
         .await?;
 
     tr.insert_one(
@@ -429,7 +431,7 @@ pub async fn add_device(
             key_id: leaf.key_id.clone(),
             is_revoked: false,
         },
-        true,
+        BindVal::ALL,
     )
     .await?;
 

@@ -1,7 +1,7 @@
 #![allow(warnings)]
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 
-use crate::{certificates::intermediate_keys::Pki, db::*};
+use crate::{certificates::intermediate_keys::Pki, db::*, responses::error_t::InternalError};
 use axum::http::StatusCode;
 use base64::engine::{GeneralPurpose, general_purpose::URL_SAFE_NO_PAD};
 use derive_macros::Bindable;
@@ -37,19 +37,23 @@ pub trait Bindable<DB: Database> {
     fn columns() -> &'static [&'static str];
     fn id_columns() -> &'static [&'static str];
     fn base_columns() -> &'static [&'static str];
+    fn non_default_columns() -> &'static [&'static str];
 
     fn bind_values<'lftm>(
         &'lftm self,
-        query: QueryAs<'lftm, DB, Self, DB::Arguments>,
-        bind_val: BindVal,
-    ) -> QueryAs<'lftm, DB, Self, DB::Arguments>
-    where
+        query_builder: &mut sqlx::query_builder::Separated<'lftm, DB, &'static str>,
+        bind_val: &BindVal,
+    ) where
         Self: Sized;
 }
 
-pub trait FetchableSignature {
-    fn fetch_mut_kid(&mut self) -> &mut Option<Uuid>;
-    fn fetch_mut_Signature(&mut self) -> &mut Option<String>;
+pub trait Connect {
+    type DB: Database;
+    type Conn<'a>: DerefMut<Target = <Self::DB as Database>::Connection> + Send
+    where
+        Self: 'a;
+
+    async fn conn(&mut self) -> Result<Self::Conn<'_>, InternalError>;
 }
 
 /* ===== ENUMS ===== */
@@ -59,6 +63,14 @@ pub enum BindVal {
     ID,
     BASE,
     ALL,
+    ND,
+}
+
+#[derive(PartialEq)]
+pub enum LogicalOp {
+    AND,
+    OR,
+    IN,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -112,6 +124,7 @@ where
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "id"]
 pub struct User {
+    #[has_default]
     pub id: Uuid,
     pub prv: PrivilegeT,
     pub home_ds: Uuid,
@@ -119,6 +132,7 @@ pub struct User {
     pub username: String,
     pub password: String,
     pub changes: i64,
+    #[has_default]
     pub pfp: Option<String>,
 }
 
@@ -139,6 +153,7 @@ pub struct Device {
 #[derive(sqlx::FromRow, Serialize, Deserialize, Bindable, Clone)]
 #[ids = "seq"]
 pub struct Deletion {
+    #[has_default]
     pub seq: i64,
     pub user_id: Uuid,
     pub deleted_at: i64,

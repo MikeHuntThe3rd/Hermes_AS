@@ -13,7 +13,8 @@ pub async fn delete_self(
 ) -> Result<Res<()>, InternalError> {
     let mut tr = state.pg_interface.begin_transaction().await?;
 
-    tr.delete_many::<Uuid, User>(&[auth.user_id]).await?;
+    tr.delete_matches::<Uuid, User>(&["id"], &vec![auth.user_id], LogicalOp::AND)
+        .await?;
 
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let imk = state.pki.get_im_key(now).ok_or(InternalError::NoMatches)?;
@@ -30,7 +31,7 @@ pub async fn delete_self(
 
     deletion.signature = signature.to_vec();
 
-    tr.insert_one(deletion, true).await?;
+    tr.insert_one(deletion, BindVal::ND).await?;
 
     tr.commit().await?;
 
@@ -49,7 +50,7 @@ pub async fn revoke_device(
 ) -> Result<Res<()>, InternalError> {
     let mut device: Device = state
         .pg_interface
-        .select_one((&["id"], &[device_id]))
+        .select_one((&["id"], &[device_id]), LogicalOp::AND)
         .await?;
     device.is_revoked = true;
     state.pg_interface.update_one(device).await?;

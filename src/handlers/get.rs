@@ -14,7 +14,7 @@ use crate::{
     axum_trait_impls::extractors::AuthUser,
     handlers::sign_json_object,
     responses::error_t::InternalError,
-    types::{AppState, B64_ENGINE, BindVal::ID, Device, Ds, Res, User},
+    types::{AppState, B64_ENGINE, BindVal::ID, Device, Ds, LogicalOp, Res, User},
 };
 
 #[derive(Serialize)]
@@ -107,7 +107,10 @@ pub async fn get_user_profile(
     State(mut state): State<AppState>,
     Path(user_id): Path<Uuid>,
 ) -> Result<Res<UserProfile>, InternalError> {
-    let user: User = state.pg_interface.select_one((&["id"], &[user_id])).await?;
+    let user: User = state
+        .pg_interface
+        .select_one((&["id"], &[user_id]), LogicalOp::AND)
+        .await?;
 
     return Ok(Res {
         status: StatusCode::OK,
@@ -128,7 +131,7 @@ pub async fn get_devices(
 ) -> Result<Res<Vec<Devices>>, InternalError> {
     let devices: Vec<Device> = state
         .pg_interface
-        .select_many(Some((&["user_id"], &[auth.user_id])), None)
+        .select_many(Some((&["user_id"], &[auth.user_id])), LogicalOp::AND, None)
         .await?;
 
     let res_devices: Vec<Devices> = devices
@@ -169,10 +172,13 @@ pub async fn get_signed_devices(
 
     let devices: Vec<Device> = state
         .pg_interface
-        .select_many(Some((&["user_id"], &[user_id])), None)
+        .select_many(Some((&["user_id"], &[user_id])), LogicalOp::AND, None)
         .await?;
 
-    let user: User = state.pg_interface.select_one((&["id"], &[user_id])).await?;
+    let user: User = state
+        .pg_interface
+        .select_one((&["id"], &[user_id]), LogicalOp::AND)
+        .await?;
 
     let devices_elements = devices
         .into_iter()
@@ -287,7 +293,10 @@ pub async fn get_signed_ds_eps(
     _auth: AuthUser,
     State(mut state): State<AppState>,
 ) -> Result<Res<SignedDsList>, InternalError> {
-    let list = state.pg_interface.select_many::<i8, Ds>(None, None).await?;
+    let list = state
+        .pg_interface
+        .select_many::<i8, Ds>(None, LogicalOp::IN, None)
+        .await?;
     let now = OffsetDateTime::now_utc().unix_timestamp();
     let imk = state.pki.get_im_key(now).ok_or(InternalError::NoMatches)?;
 
@@ -382,9 +391,9 @@ pub async fn get_users_by_username(
     State(mut state): State<AppState>,
     Path(nickname): Path<String>,
 ) -> Result<Res<Vec<UserProfile>>, InternalError> {
-    let all_users: Vec<UserProfile> = state
+    let searched_users: Vec<UserProfile> = state
         .pg_interface
-        .select_many::<i8, User>(None, None)
+        .select_many::<String, User>(Some((&["nickname"], &[nickname])), LogicalOp::AND, None)
         .await?
         .into_iter()
         .map(|user| UserProfile {
@@ -394,13 +403,6 @@ pub async fn get_users_by_username(
             home_ds: user.home_ds,
         })
         .collect();
-
-    let mut searched_users: Vec<UserProfile> = Vec::new();
-    for user in all_users {
-        if user.nickname == nickname {
-            searched_users.push(user);
-        }
-    }
 
     return Ok(Res {
         status: StatusCode::OK,

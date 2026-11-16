@@ -5,16 +5,16 @@ mod handlers;
 mod responses;
 mod types;
 
-use std::{env, sync::Arc, time::Duration, vec};
+use std::{collections::HashMap, env, fs, sync::Arc, time::Duration, vec};
 
 use axum::{
     Router,
-    http::{Method, StatusCode, header},
+    http::{Method, header},
     routing::{delete, get, patch, post},
 };
 
 use base64::Engine;
-use der::zeroize::Zeroize;
+use der::{Decode, zeroize::Zeroize};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use fred::{
     interfaces::ClientLike,
@@ -27,6 +27,10 @@ use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
+use x509_cert::{
+    certificate::{CertificateInner, Rfc5280},
+    ext::pkix::SubjectKeyIdentifier,
+};
 
 use crate::{
     certificates::intermediate_keys::Pki,
@@ -41,7 +45,10 @@ use crate::{
         post::*,
     },
     responses::error_t::InternalError,
-    types::{B64_ENGINE, ED25519_PKCS8_PREFIX, JwtSignerKey, PLACE_HOLDER_UUID, Res},
+    types::{
+        B64_ENGINE, BindVal, ED25519_PKCS8_PREFIX, Intermediate, JwtSignerKey, LogicalOp,
+        PLACE_HOLDER_UUID,
+    },
 };
 use crate::{handlers::get::get_signed_ds_eps, types::PrivilegeT};
 use types::{AppState, User};
@@ -59,17 +66,20 @@ fn keys_from_seed(seed: &[u8; 32]) -> (EncodingKey, VerifyingKey) {
 }
 
 async fn ensure_master_user(mut state: AppState) {
-    let (usr_nm, pswrd) = (
-        env::var("M_USERNAME").expect("the variable for the master user's username is expected"),
-        env::var("M_PASSWORD").expect("the variable for the master user's password is expected"),
-    );
+    let username =
+        env::var("M_USERNAME").expect("the variable for the master user's username is expected");
+    let password =
+        env::var("M_PASSWORD").expect("the variable for the master user's password is expected");
 
     let user = state
         .pg_interface
-        .select_one::<String, User>((
-            &["username", "password"],
-            &vec![usr_nm.clone(), pswrd.clone()],
-        ))
+        .select_one::<String, User>(
+            (
+                &["username", "password"],
+                &vec![username.clone(), password.clone()],
+            ),
+            LogicalOp::AND,
+        )
         .await;
 
     let master_user = User {
@@ -77,29 +87,33 @@ async fn ensure_master_user(mut state: AppState) {
         prv: PrivilegeT::Proprietor,
         home_ds: Uuid::new_v4(),
         nickname: "master".to_string(),
-        username: usr_nm,
-        password: pswrd,
+        username: username,
+        password: password,
         changes: 0,
         pfp: None,
     };
 
     match user {
         Ok(u) if u.prv != PrivilegeT::Proprietor => {
-            state
+            let mut tr = state
                 .pg_interface
-                .delete_many::<Uuid, User>(&[u.id])
+                .begin_transaction()
+                .await
+                .expect("transction must be set up");
+
+            tr.delete_matches::<Uuid, User>(&["id"], &vec![u.id], LogicalOp::AND)
                 .await
                 .expect("generic db ops are expected to succeed");
-            state
-                .pg_interface
-                .insert_one(master_user, false)
+            tr.insert_one(master_user, BindVal::ND)
                 .await
                 .expect("generic db ops are expected to succeed");
+
+            tr.commit().await.expect("transction must succeed");
         }
         Err(e) if e == InternalError::NoMatches => {
             state
                 .pg_interface
-                .insert_one(master_user, false)
+                .insert_one(master_user, BindVal::ND)
                 .await
                 .expect("generic db ops are expected to succeed");
         }
@@ -108,6 +122,87 @@ async fn ensure_master_user(mut state: AppState) {
         }
         _ => {}
     }
+}
+
+fn load_imks() -> Vec<Intermediate> {
+    let imks_dir_path =
+        env::var("IMKS_DIR_PATH").expect("a directory for the intermediate keys must be set");
+    let imks_priv_key_paths =
+        env::var("IMKS_PRIV_KEY_PATHS").expect("a directory for the intermediate keys must be set");
+    let priv_key_paths: Vec<&str> = (&imks_priv_key_paths).split(';').collect();
+    let mut pub_to_priv_keys: HashMap<[u8; 32], SigningKey> = HashMap::new();
+
+    for priv_key_path in priv_key_paths {
+        let priv_key_bytes = fs::read(priv_key_path).expect("file reads need to succeed");
+        let secret_key_bytes: [u8; 32] = priv_key_bytes
+            .as_slice()
+            .try_into()
+            .expect("the read private key is of invalid length");
+
+        let signer = SigningKey::from_bytes(&secret_key_bytes);
+        pub_to_priv_keys.insert(signer.verifying_key().to_bytes(), signer);
+    }
+
+    let dir = fs::read_dir(imks_dir_path).expect("given directory must exist");
+    let mut files: Vec<Vec<u8>> = Vec::new();
+
+    for file in dir {
+        match file {
+            Ok(k) => {
+                let file_bytes = fs::read(k.path())
+                    .expect("file reading is expected to succeed check permissions");
+
+                files.push(file_bytes);
+            }
+            Err(_) => {
+                panic!("a file entry couldnt be read")
+            }
+        }
+    }
+
+    let mut imks: Vec<Intermediate> = Vec::new();
+
+    for der in files {
+        let cert: CertificateInner<Rfc5280> =
+            CertificateInner::from_der(&der).expect("der certificate bytes are invalid");
+        let tbs = cert.tbs_certificate();
+
+        let spki = cert.tbs_certificate().subject_public_key_info();
+        let ski: Vec<u8> = tbs
+            .get_extension::<SubjectKeyIdentifier>()
+            .expect("extension extraction failed")
+            .expect("no ski extension found")
+            .1
+            .0
+            .as_bytes()
+            .to_vec();
+
+        let cert_pubk: &[u8; 32] = spki
+            .subject_public_key
+            .raw_bytes()
+            .try_into()
+            .expect("the public key in the certificate is invalid");
+
+        let signer = pub_to_priv_keys
+            .get(cert_pubk)
+            .expect("there was no match for a public key");
+
+        let not_before = tbs.validity().not_before.to_unix_duration().as_secs() as i64;
+        let not_after = tbs.validity().not_after.to_unix_duration().as_secs() as i64;
+
+        let imk = Intermediate {
+            key_id: hex::encode(&ski),
+            ski,
+            cert_der: der,
+            subject: tbs.subject().clone(),
+            signer: signer.clone(),
+            not_before,
+            not_after,
+            active: true,
+        };
+        imks.push(imk);
+    }
+    return imks;
 }
 
 async fn setup() -> AppState {
@@ -168,22 +263,13 @@ async fn setup() -> AppState {
             .expect("failed to create the postgres db connection"),
         kvs_client: kv_client,
         pki: Pki {
-            intermediates: Arc::new(Vec::new()),
+            intermediates: Arc::new(load_imks()),
         },
     };
 
     ensure_master_user(state.clone()).await;
 
     return state;
-}
-
-async fn palceholder_handler() -> Res<()> {
-    Res {
-        status: StatusCode::OK,
-        success: true,
-        msg: String::new(),
-        data: None,
-    }
 }
 
 #[tokio::main]
@@ -233,7 +319,7 @@ async fn main() {
 
     let api = Router::new()
         /* ===== INVITES ===== */
-        .route("/invite_new_user", post(palceholder_handler))
+        .route("/invite_new_user", post(create_new_user_invite))
         /* ===== AUTH ===== */
         .nest("/auth", auth)
         /* ===== USERS ===== */
